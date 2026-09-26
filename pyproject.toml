@@ -1,0 +1,9 @@
+[project]
+name = "sharar-evals"
+version = "0.1.0"
+description = "Engine-agnostic HTTP evaluations for local inference servers"
+requires-python = ">=3.10"
+dependencies = ["tokenizers"]
+
+[tool.setuptools]
+packages = ["evals"]
