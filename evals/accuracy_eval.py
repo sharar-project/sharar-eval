@@ -233,6 +233,7 @@ def main() -> int:
     ap.add_argument("--label", required=True)
     ap.add_argument("--temperature", type=float, default=0.0, help="sample at this temperature (top_p 0.95, top_k 20, one seed per prompt shared by every arm)")
     ap.add_argument("--accept", default="1:0", help="K:M acceptance pinned on every request (1:0 exact); 'server': send none (the server's default)")
+    ap.add_argument("--start", type=int, default=0, help="skip the first N items (a shard of a longer run; with --limit)")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--per-language", type=int, default=0, help="mgsm: the first N items of each language (0: all 250)")
     ap.add_argument("--max-tokens", type=int, default=0)
@@ -261,6 +262,7 @@ def main() -> int:
     else:
         items = [json.loads(l) for l in (DATA / "HumanEval.jsonl").read_text().splitlines() if l.strip()]
         run, max_tokens = run_humaneval, args.max_tokens or 768
+    items = items[args.start:]
     if args.limit:
         items = items[:args.limit]
     t0 = time.perf_counter()
@@ -271,7 +273,7 @@ def main() -> int:
     if not args.plain:
         with urllib.request.urlopen(f"{args.url}/get_server_info", timeout=10) as r:
             info = json.loads(r.read())
-    result = {"label": args.label, "task": args.task, "accept": accept if accept is not None else "server", "per_language": args.per_language or None, "sampling": dict(SAMPLING), "n": len(rows), "accuracy": acc, "wall_seconds": wall,
+    result = {"label": args.label, "task": args.task, "accept": accept if accept is not None else "server", "per_language": args.per_language or None, "start": args.start, "sampling": dict(SAMPLING), "n": len(rows), "accuracy": acc, "wall_seconds": wall,
               "max_tokens": max_tokens, "speculative": info.get("speculative"), "items": rows}
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / f"{args.label}-{args.task}.json").write_text(json.dumps(result, indent=1))
