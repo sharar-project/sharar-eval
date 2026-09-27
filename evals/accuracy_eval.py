@@ -1,13 +1,21 @@
-"""Task-accuracy benchmarks against a running server: GSM8K (exact match on the final number) and HumanEval (pass@1, tests executed).
+"""Task-accuracy benchmarks against a running server: GSM8K and MGSM (exact match on the final
+number) and HumanEval and MBPP (pass@1, tests executed).
 
     python3 -m evals.accuracy_eval --task gsm8k --limit 300 --label exact --accept 1:0 --output DIR
     python3 -m evals.accuracy_eval --task humaneval --label w3 --output DIR
+    python3 -m evals.accuracy_eval --task mgsm --per-language 24 --label fast --accept server --output DIR
     python3 -m evals.accuracy_eval compare DIR/exact-gsm8k.json DIR/w3-gsm8k.json
+
+MGSM (multilingual grade-school math, 11 languages x 250, the url-nlp TSVs) asks
+for the reasoning in the question's language; `--per-language N` takes the first
+N items of every language. MBPP is the 500-task test split (task ids 11-510) of
+the original release, graded on its three `test_list` asserts.
 
 Greedy (or `--temperature T`: sampled with top_p 0.95, top_k 20 and one seed per
 item shared by every arm), thinking disabled, identical prompts for every arm;
 `--accept K:M` pins the acceptance rule per request (1:0 = exact, 2:1.0 = the
-relaxed default). HumanEval
+relaxed default; `server` sends no acceptance fields, so the server's profile
+default applies). HumanEval and MBPP
 completions run in a subprocess with no network, a CPU and memory limit and a
 timeout. Results hold per-item correctness so two arms compare paired (McNemar).
 """
@@ -45,7 +53,9 @@ def ask(url: str, content: str, max_tokens: int, accept: tuple[int, float]) -> t
     body = {"model": SERVER["model"], "messages": [{"role": "user", "content": content}], **SAMPLING, "max_tokens": max_tokens,
             "chat_template_kwargs": {"enable_thinking": False}}
     if not SERVER["plain"]:
-        body.update(accept_top_k=accept[0], accept_margin=accept[1], trace=False)
+        body["trace"] = False
+        if accept is not None:  # None: the server's default acceptance (its profile)
+            body.update(accept_top_k=accept[0], accept_margin=accept[1])
     if body["temperature"] > 0:
         body["seed"] = zlib.crc32(content.encode())  # the same seed per item in every arm
     out = post(url, body)
@@ -91,6 +101,34 @@ def run_gsm8k(url, items, accept, max_tokens, concurrency):
         return list(pool.map(lambda p: one(*p), enumerate(items)))
 
 
+# ---------------------------------------------------------------- MGSM
+
+MGSM_LANGS = ("bn", "de", "en", "es", "fr", "ja", "ru", "sw", "te", "th", "zh")
+MGSM_SUFFIX = ("\n\nSolve the problem step by step, reasoning in the language of the question. "
+               "On the last line write only: Answer: <number> (digits only, no thousands separators)")
+
+
+def mgsm_items(per_language: int = 0) -> list[dict]:
+    items = []
+    for lang in MGSM_LANGS:
+        rows = [l.split("\t") for l in (DATA / "mgsm" / f"mgsm_{lang}.tsv").read_text(encoding="utf-8").splitlines() if l.strip()]
+        rows = rows[:per_language] if per_language else rows
+        items += [{"lang": lang, "index": i, "question": q, "answer": a.strip()} for i, (q, a) in enumerate(rows)]
+    return items
+
+
+def run_mgsm(url, items, accept, max_tokens, concurrency):
+    def one(i, it):
+        t0 = time.perf_counter()
+        text, usage = ask(url, it["question"] + MGSM_SUFFIX, max_tokens, accept)
+        pred = gsm_pred(text)
+        return {"index": i, "lang": it["lang"], "correct": same_number(pred, it["answer"]), "pred": pred, "gold": it["answer"],
+                "seconds": time.perf_counter() - t0, "completion_tokens": usage.get("completion_tokens"),
+                "relaxed_tokens": usage.get("relaxed_tokens"), "text_tail": text[-160:]}
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        return list(pool.map(lambda p: one(*p), enumerate(items)))
+
+
 # ---------------------------------------------------------------- HumanEval
 
 HE_PREFIX = ("Complete the following Python function. Reply with the complete function (including the signature and any imports it needs) "
@@ -112,8 +150,9 @@ def _limits():
     os.setsid()
 
 
-def he_check(program: str, test: str, entry_point: str) -> tuple[bool, str]:
-    src = program + "\n\n" + test + f"\n\ncheck({entry_point})\n"
+def he_check(program: str, test: str, entry_point: str | None) -> tuple[bool, str]:
+    """Run program + test in a sandboxed subprocess; HumanEval calls check(entry_point), MBPP's asserts run as they stand."""
+    src = program + "\n\n" + test + (f"\n\ncheck({entry_point})\n" if entry_point else "\n")
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / "candidate.py"
         path.write_text(src)
@@ -131,6 +170,32 @@ def run_humaneval(url, items, accept, max_tokens, concurrency):
         text, usage = ask(url, HE_PREFIX + it["prompt"], max_tokens, accept)
         program = he_program(it["prompt"], text, it["entry_point"])
         ok, err = he_check(program, it["test"], it["entry_point"])
+        return {"index": i, "task_id": it["task_id"], "correct": ok, "error": err if not ok else "", "seconds": time.perf_counter() - t0,
+                "completion_tokens": usage.get("completion_tokens"), "relaxed_tokens": usage.get("relaxed_tokens")}
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        return list(pool.map(lambda p: one(*p), enumerate(items)))
+
+
+# ---------------------------------------------------------------- MBPP
+
+MBPP_PREFIX = "You are an expert Python programmer, and here is your task: "
+MBPP_SUFFIX = ("\nYour code should pass these tests:\n\n{tests}\n\nReply with the complete code "
+               "(the function and any imports it needs) in a single ```python code block and nothing else.")
+
+
+def mbpp_items() -> list[dict]:
+    rows = [json.loads(l) for l in (DATA / "mbpp.jsonl").read_text().splitlines() if l.strip()]
+    return [r for r in rows if 11 <= r["task_id"] <= 510]  # the test split
+
+
+def run_mbpp(url, items, accept, max_tokens, concurrency):
+    def one(i, it):
+        t0 = time.perf_counter()
+        tests = "\n".join(it["test_list"])
+        text, usage = ask(url, MBPP_PREFIX + it["text"] + MBPP_SUFFIX.format(tests=tests), max_tokens, accept)
+        blocks = BLOCK.findall(text)
+        program = max(blocks, key=len) if blocks else text
+        ok, err = he_check((it.get("test_setup_code") or "") + "\n" + program, tests, None)
         return {"index": i, "task_id": it["task_id"], "correct": ok, "error": err if not ok else "", "seconds": time.perf_counter() - t0,
                 "completion_tokens": usage.get("completion_tokens"), "relaxed_tokens": usage.get("relaxed_tokens")}
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -164,11 +229,12 @@ def main() -> int:
         return 0
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", default="http://127.0.0.1:30001")
-    ap.add_argument("--task", choices=("gsm8k", "humaneval"), required=True)
+    ap.add_argument("--task", choices=("gsm8k", "humaneval", "mgsm", "mbpp"), required=True)
     ap.add_argument("--label", required=True)
     ap.add_argument("--temperature", type=float, default=0.0, help="sample at this temperature (top_p 0.95, top_k 20, one seed per prompt shared by every arm)")
-    ap.add_argument("--accept", default="1:0", help="K:M acceptance pinned on every request (1:0 exact)")
+    ap.add_argument("--accept", default="1:0", help="K:M acceptance pinned on every request (1:0 exact); 'server': send none (the server's default)")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--per-language", type=int, default=0, help="mgsm: the first N items of each language (0: all 250)")
     ap.add_argument("--max-tokens", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=4)
     ap.add_argument("--output", type=Path, required=True)
@@ -178,11 +244,20 @@ def main() -> int:
     SERVER.update(model=args.model, plain=args.plain)
     if args.temperature > 0:
         SAMPLING.update(temperature=args.temperature, top_p=0.95, top_k=20)
-    k, m = args.accept.split(":")
-    accept = (int(k), float(m))
+    if args.accept == "server":
+        accept = None
+    else:
+        k, m = args.accept.split(":")
+        accept = (int(k), float(m))
     if args.task == "gsm8k":
         items = [json.loads(l) for l in (DATA / "gsm8k_test.jsonl").read_text().splitlines() if l.strip()]
         run, max_tokens = run_gsm8k, args.max_tokens or 640
+    elif args.task == "mgsm":
+        items = mgsm_items(args.per_language)
+        run, max_tokens = run_mgsm, args.max_tokens or 768
+    elif args.task == "mbpp":
+        items = mbpp_items()
+        run, max_tokens = run_mbpp, args.max_tokens or 768
     else:
         items = [json.loads(l) for l in (DATA / "HumanEval.jsonl").read_text().splitlines() if l.strip()]
         run, max_tokens = run_humaneval, args.max_tokens or 768
@@ -196,7 +271,7 @@ def main() -> int:
     if not args.plain:
         with urllib.request.urlopen(f"{args.url}/get_server_info", timeout=10) as r:
             info = json.loads(r.read())
-    result = {"label": args.label, "task": args.task, "accept": accept, "sampling": dict(SAMPLING), "n": len(rows), "accuracy": acc, "wall_seconds": wall,
+    result = {"label": args.label, "task": args.task, "accept": accept if accept is not None else "server", "per_language": args.per_language or None, "sampling": dict(SAMPLING), "n": len(rows), "accuracy": acc, "wall_seconds": wall,
               "max_tokens": max_tokens, "speculative": info.get("speculative"), "items": rows}
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / f"{args.label}-{args.task}.json").write_text(json.dumps(result, indent=1))
