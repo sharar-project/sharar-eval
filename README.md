@@ -14,6 +14,7 @@ its in-process benchmarks and the family gate.
 | `evals.accuracy_eval` | GSM8K and MGSM (11 languages) exact match, HumanEval and MBPP pass@1 (sandboxed), acceptance pinned per request or left to the server's profile (`--accept server`); `compare` pairs arms with McNemar |
 | `evals.tts_eval` | Test-time scaling on MATH-500: greedy, self-consistency with n choices |
 | `evals.long_context` | Needle retrieval and prefill/decode rates at 10K-262K |
+| `evals.hard_eval` | Harder, less saturated tasks (sharar#28): MMLU-Pro (1,960 items, 14 categories), GPQA Diamond, IFEval (strict, reference checker vendored in `evals/ifeval/`), WMT24++ English into 10 languages (chrF++); paired McNemar / bootstrap `compare`. Needs `.venv-evals` (`requirements-hard.txt`); `fetch` writes the pinned datasets |
 
 Run from the repository root, e.g.
 
