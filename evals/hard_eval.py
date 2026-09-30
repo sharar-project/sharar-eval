@@ -181,7 +181,8 @@ def run(task: str, url: str, items: list[dict], accept, max_tokens: int, concurr
             hyp = text.strip()
             row = {"score": sacrebleu.sentence_chrf(hyp, [it["target"]], word_order=2).score, "hyp": hyp[:400]}
         return {"index": i, "id": it["id"], "group": it["group"], **row, "seconds": time.perf_counter() - t0,
-                "completion_tokens": usage.get("completion_tokens"), "relaxed_tokens": usage.get("relaxed_tokens")}
+                "completion_tokens": usage.get("completion_tokens"), "relaxed_tokens": usage.get("relaxed_tokens"),
+                "capped": (usage.get("completion_tokens") or 0) >= max_tokens}
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         return list(pool.map(lambda p: one(*p), enumerate(items)))
@@ -203,7 +204,7 @@ def compare(paths: list[str]) -> None:
     runs = [json.loads(Path(p).read_text()) for p in paths]
     base = runs[0]
     by_id = {x["id"]: x for x in base["items"]}
-    print(f"{'arm':<14} {'task':<8} {'n':>5} {'score':>7} {'vs first':>22} {'p':>6} {'tok/item':>9} {'relaxed%':>9}")
+    print(f"{'arm':<14} {'task':<8} {'n':>5} {'score':>7} {'vs first':>22} {'p':>6} {'tok/item':>9} {'relaxed%':>9} {'capped':>7}")
     for r in runs:
         pairs = [(by_id[x["id"]], x) for x in r["items"] if x["id"] in by_id]
         toks = sum(x["completion_tokens"] or 0 for x in r["items"]); rel = sum(x["relaxed_tokens"] or 0 for x in r["items"])
@@ -219,7 +220,7 @@ def compare(paths: list[str]) -> None:
             vs = f"{100 * (m['b_only'] - m['a_only']) / len(pairs):+.1f} pp ({m['b_only']}/{m['a_only']})" if r is not base else ""
             p = m["p"] if r is not base else 1.0
             shown = f"{100 * score:6.1f}%"
-        print(f"{r['label']:<14} {r['task']:<8} {len(r['items']):>5} {shown} {vs:>22} {p:6.3f} {toks / len(r['items']):9.0f} {100 * rel / max(1, toks):8.2f}%")
+        print(f"{r['label']:<14} {r['task']:<8} {len(r['items']):>5} {shown} {vs:>22} {p:6.3f} {toks / len(r['items']):9.0f} {100 * rel / max(1, toks):8.2f}% {sum(bool(x.get('capped')) for x in r['items']):>7}")
     groups = sorted({x["group"] for x in base["items"] if x["group"]})
     if len(groups) > 1:
         key = "score" if "score" in base["items"][0] else "correct"
@@ -256,9 +257,11 @@ def main() -> int:
     SERVER.update(model=args.model, plain=args.plain)
     accept = None if args.accept == "server" else (int(args.accept.split(":")[0]), float(args.accept.split(":")[1]))
     items, max_tokens = {
-        "mmlupro": lambda: (mmlupro_items(args.per_category), 1536),
-        "gpqa": lambda: (gpqa_items(), 2048),
-        "ifeval": lambda: (ifeval_items(), 1536),
+        # generous caps: thinking is off but the model still reasons at length, and a capped answer scores as wrong,
+        # which favours whichever arm writes shorter answers (GPQA at 2,048: half the exact arm's answers were cut off)
+        "mmlupro": lambda: (mmlupro_items(args.per_category), 4096),
+        "gpqa": lambda: (gpqa_items(), 8192),
+        "ifeval": lambda: (ifeval_items(), 4096),
         "wmt": lambda: (wmt_items(args.per_language), 1024),
     }[args.task]()
     if args.limit:
