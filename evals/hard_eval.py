@@ -10,11 +10,11 @@ lossy weight changes move the distribution most, and give more discordant pairs 
 
 Requests and sampling follow `evals.accuracy_eval` (greedy, thinking disabled, identical prompts in
 every arm, `--accept` as there; the default here is `server`, the arm's profile decides). MMLU-Pro
-takes the first `--per-category` items (default 140, 1,960 in all) of each of its 14 categories in
+takes the first `--per-category` items (default 100, 1,400 in all) of each of its 14 categories in
 question-id order; GPQA shuffles each question's options with a seed from its text, the same in every
 arm; IFEval is graded strict per prompt with the reference checker (evals/ifeval, google-research
 instruction_following_eval, Apache-2.0); WMT24++ takes the first `--per-language` good-source segments
-(default 150) of each language and scores sentence chrF++ (sacrebleu). Binary tasks compare paired with
+(default 100) of each language and scores sentence chrF++ (sacrebleu). Binary tasks compare paired with
 McNemar, WMT24++ with a paired bootstrap of the mean chrF++ and a sign test.
 
 Extra dependencies (sacrebleu, langdetect, nltk, immutabledict, absl-py, pyarrow for `fetch`) live in
@@ -245,8 +245,8 @@ def main() -> int:
     ap.add_argument("--task", choices=("mmlupro", "gpqa", "ifeval", "wmt"), required=True)
     ap.add_argument("--label", required=True)
     ap.add_argument("--accept", default="server", help="K:M acceptance pinned on every request (1:0 exact); 'server' (default): the arm's profile")
-    ap.add_argument("--per-category", type=int, default=140, help="mmlupro: the first N items of each of the 14 categories")
-    ap.add_argument("--per-language", type=int, default=150, help="wmt: the first N good-source segments of each language")
+    ap.add_argument("--per-category", type=int, default=100, help="mmlupro: the first N items of each of the 14 categories")
+    ap.add_argument("--per-language", type=int, default=100, help="wmt: the first N good-source segments of each language")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--max-tokens", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=4)
