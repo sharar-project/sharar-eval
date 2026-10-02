@@ -125,8 +125,13 @@ def fetch() -> None:
     if not all((ROOT / "hard" / f).is_file() for f in ("mmlupro.jsonl", "gpqa_diamond.jsonl", "ifeval.jsonl", "wmt24pp.jsonl")):
         from evals import hard_eval  # needs pyarrow; GPQA is gated (HF_TOKEN)
         hard_eval.fetch()
-    check()
-    print(f"all {len(pins())} pinned files match {PINS.name}")
+    from evals import tbench  # Terminal-Bench needs the harbor venv (requirements-harbor.txt); skipped without it
+    if tbench.HARBOR.is_file() and not (ROOT / tbench.MANIFEST).is_file():
+        print("fetch tbench (harbor download)", flush=True)
+        tbench.fetch()
+    names = [n for n in pins() if tbench.HARBOR.is_file() or not n.startswith("tbench/")]
+    check(names)
+    print(f"{len(names)} pinned files match {PINS.name}" + ("" if len(names) == len(pins()) else " (Terminal-Bench skipped: no .venv-harbor)"))
 
 
 def main() -> int:
