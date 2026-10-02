@@ -171,15 +171,15 @@ def cmd_run(argv: list[str]) -> int:
     ap.add_argument("--engine", default=None, help="engine version, recorded verbatim (image tag and commit, or a pinned digest)")
     ap.add_argument("--accept", default="server", help="K:M acceptance pinned on every request (1:0 exact); 'server' (default): the server's profile")
     ap.add_argument("--concurrency", type=int, default=4)
+    ap.add_argument("--skip", action="append", default=[], choices=sorted(TASKS), help="leave this task out (repeatable)")
     ap.add_argument("--model", default="sharar")
     ap.add_argument("--plain", action="store_true", help="another OpenAI-compatible server: no Sharar-only request fields, no /get_server_info")
     args = ap.parse_args(argv)
     args.url = args.url.rstrip("/")
     SERVER.update(model=args.model, plain=args.plain)
     accept = None if args.accept == "server" else (int(args.accept.split(":")[0]), float(args.accept.split(":")[1]))
-    plan = SUITES[args.suite]
-    if args.plain:
-        plan = [(n, k) for n, k in plan if n != "needles"]  # the needles send Sharar request fields
+    skip = set(args.skip) | ({"needles"} if args.plain else set())  # the needles send Sharar request fields
+    plan = [(n, k) for n, k in SUITES[args.suite] if n not in skip]
     record(args.out, args, [n for n, _ in plan])
     t0 = time.monotonic()
     for name, limit in plan:
@@ -236,12 +236,12 @@ def needle_stats(run: Path) -> dict | None:
             "decode_tps": {f"{r['length']}/{r['mode']}": r["decode_tps"] for r in rows if r.get("kind") == "decode"}}
 
 
-def scorecard(base: Path, cand: Path) -> dict:
+def scorecard(base: Path, cand: Path, tasks: list[str] | None = None) -> dict:
     rb, rc = (json.loads((d / "run.json").read_text()) for d in (base, cand))
     card = {"base": {"dir": str(base), "label": rb["label"], "engine": rb.get("engine")},
             "cand": {"dir": str(cand), "label": rc["label"], "engine": rc.get("engine")}, "tasks": {}}
     pb, pc = [], []
-    for name in TASKS:
+    for name in tasks or TASKS:
         if name == "needles":
             nb, nc = needle_stats(base), needle_stats(cand)
             if nb and nc:
@@ -307,8 +307,12 @@ def cmd_compare(argv: list[str]) -> int:
     ap.add_argument("cand", type=Path)
     ap.add_argument("--json", type=Path, help="also write the scorecard as JSON")
     ap.add_argument("--detail", action="store_true", help="per category / language")
+    ap.add_argument("--tasks", help="comma-separated tasks to compare (default: every task both runs have)")
     args = ap.parse_args(argv)
-    card = scorecard(args.base, args.cand)
+    tasks = args.tasks.split(",") if args.tasks else None
+    if tasks and set(tasks) - set(TASKS):
+        ap.error(f"unknown tasks: {sorted(set(tasks) - set(TASKS))}")
+    card = scorecard(args.base, args.cand, tasks)
     show(card, args.detail)
     if args.json:
         args.json.write_text(json.dumps(card, indent=1) + "\n")
