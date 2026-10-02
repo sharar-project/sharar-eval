@@ -54,6 +54,24 @@ benchmarks and gates, and runs these evals against its served arms.
   runs of the same configuration therefore differ on a few items; that is part of the noise
   the paired tests measure.
 
+## Speed and serving benchmarks
+
+`evals/speed/` (moved from sharar on 2026-10-02) measures throughput and latency over HTTP. Inputs are
+tokenized on the client from the pinned Qwen3.8-27B snapshot (`--snapshot`, else `SHARAR_HF_CACHE`), so
+every engine receives identical token IDs.
+
+    python3 -m venv .venv-aiperf && .venv-aiperf/bin/pip install aiperf==0.12.0      # once, for evals.speed
+    .venv/bin/python -m evals.speed --url http://127.0.0.1:30004 --workload all     # frozen 10K/1K, cold prefix, BS1
+    .venv/bin/python -m evals.speed --url http://127.0.0.1:30000 --accept omit --inputs RUN/frozen-inputs.json --baseline RUN
+
+| Module | What it measures |
+|---|---|
+| `evals.speed` | AIPerf end-to-end and decode TPS on the frozen `code` / `design` / `reasoning` 10K/1K prompts. Greedy with `ignore_eos`, cold prefix, concurrency 1, exact acceptance by default. `--baseline` compares runs with identical input IDs |
+| `evals.speed.sharegpt` | ShareGPT first turns in short / medium / long buckets at several concurrencies |
+| `evals.speed.competitive` | Engine-neutral native `/generate` cells with frozen token inputs (fixed work plus natural answers) |
+| `evals.speed.engine_matrix` | Sharar / SGLang / Atlas token-input matrix with attested output and cache counts |
+| `evals.speed.local`, `evals.speed.agent` | Frozen local-use requests (cache variants, mixed arrival, cancellation) and agent-shaped episodes |
+
 ## Modules
 
 | Module | What it measures |

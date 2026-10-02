@@ -5,3 +5,4 @@ out/
 .venv/
 .venv-evals/
 .venv-harbor/
+.venv-aiperf/

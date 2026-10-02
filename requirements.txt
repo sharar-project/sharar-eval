@@ -7,3 +7,5 @@ pyarrow==17.0.0
 tokenizers==0.22.2
 wonderwords==2.2.0
 editdistance==0.8.1
+jinja2==3.1.6
+pytest==8.4.2
