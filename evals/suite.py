@@ -3,12 +3,17 @@ the versions that produced it, and one paired scorecard between two run director
 
     python -m evals.suite run --url http://127.0.0.1:30004 --label fast --suite quick --out runs/fast
     python -m evals.suite compare runs/exact runs/fast
+    python -m evals.suite run --label fast --tasks gpqa,mmlupro --limit 50 --out runs/fast   # any tasks, first N items
 
 Suites (Flash-Next on the GB10, 4 streams):
     quick   GSM8K first 300, HumanEval 164, MGSM 24 per language (264), needles at 16K and 64K   ~1 h
     full    GSM8K 1319, HumanEval 164, MBPP 500, MGSM 2750                                      ~4 h
     hard    MMLU-Pro 1,400, GPQA Diamond 198, IFEval 541, WMT24++ 1,000                          4-6 h
     all     full + hard + needles
+
+`--tasks a,b` runs those tasks instead of a suite (names: gsm8k, humaneval, mbpp, mgsm, mgsm-pl24,
+mmlupro, gpqa, ifeval, wmt, needles) and `--limit N` takes the first N items of each; both work with
+`--suite` too. A limited run is a prefix of the full one, so a later longer run only adds the rest.
 
 A run directory holds one server configuration. Each task runs in shards of 100 items
 (<task>/s00000.json, ...), so an interrupted run resumes where it stopped and `full` reuses
@@ -121,7 +126,7 @@ def record(out: Path, args, names: list[str]) -> dict:
     for name in names:
         rec["datasets"].update(datasets.check(task_files(name)))
         rec["tasks"][name] = {"max_tokens": task_max_tokens(name), **TASKS[name][2]}
-    rec["runs"].append({"suite": args.suite, "started": dt.datetime.now().isoformat(timespec="seconds"),
+    rec["runs"].append({"suite": args.suite, "tasks": args.tasks, "limit": args.limit or None, "started": dt.datetime.now().isoformat(timespec="seconds"),
                         "evals_commit": git("rev-parse", "HEAD"), "evals_dirty": bool(git("status", "--porcelain", "--", "evals", "datasets.sha256"))})
     out.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(rec, indent=1) + "\n")
@@ -146,19 +151,21 @@ def run_task(out: Path, name: str, limit: int, url: str, accept, concurrency: in
     total = min(limit, len(items)) if limit else len(items)
     for start in range(0, total, SHARD):
         path = out / name / f"s{start:05d}.json"
-        if path.exists():
+        have = json.loads(path.read_text())["items"] if path.exists() else []  # a shorter --limit may have filled part of it
+        first = start + len(have)
+        want = items[first:min(start + SHARD, total)]
+        if not want:
             continue
-        chunk = items[start:start + SHARD]
         t0 = time.monotonic()
-        rows = run_shard(name, url, chunk, accept, concurrency)
+        rows = run_shard(name, url, want, accept, concurrency)
         for r in rows:
-            r["index"] += start
+            r["index"] += first
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.with_suffix(".partial").write_text(json.dumps({"task": name, "start": start, "items": rows}, ensure_ascii=False))
+        path.with_suffix(".partial").write_text(json.dumps({"task": name, "start": start, "items": have + rows}, ensure_ascii=False))
         path.with_suffix(".partial").rename(path)
         key = "score" if "score" in rows[0] else "correct"
         mean = sum(float(r[key]) for r in rows) / len(rows)
-        log(f"{name} {start}-{start + len(rows) - 1} of {len(items)}: {mean * (1 if key == 'score' else 100):.1f}"
+        log(f"{name} {first}-{first + len(rows) - 1} of {len(items)}: {mean * (1 if key == 'score' else 100):.1f}"
             f"{'' if key == 'score' else '%'} in {time.monotonic() - t0:.0f}s")
 
 
@@ -166,7 +173,9 @@ def cmd_run(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="evals.suite run")
     ap.add_argument("--url", default="http://127.0.0.1:30004")
     ap.add_argument("--label", required=True)
-    ap.add_argument("--suite", choices=sorted(SUITES), default="quick")
+    ap.add_argument("--suite", choices=sorted(SUITES), help="a named suite (default quick, unless --tasks is given)")
+    ap.add_argument("--tasks", help=f"comma-separated tasks instead of a suite: {','.join(TASKS)}")
+    ap.add_argument("--limit", type=int, default=0, help="the first N items of each task (the needles ignore it)")
     ap.add_argument("--out", type=Path, required=True, help="run directory for this server configuration")
     ap.add_argument("--engine", default=None, help="engine version, recorded verbatim (image tag and commit, or a pinned digest)")
     ap.add_argument("--accept", default="server", help="K:M acceptance pinned on every request (1:0 exact); 'server' (default): the server's profile")
@@ -179,7 +188,17 @@ def cmd_run(argv: list[str]) -> int:
     SERVER.update(model=args.model, plain=args.plain)
     accept = None if args.accept == "server" else (int(args.accept.split(":")[0]), float(args.accept.split(":")[1]))
     skip = set(args.skip) | ({"needles"} if args.plain else set())  # the needles send Sharar request fields
-    plan = [(n, k) for n, k in SUITES[args.suite] if n not in skip]
+    if args.tasks:
+        names = args.tasks.split(",")
+        if set(names) - set(TASKS):
+            ap.error(f"unknown tasks: {sorted(set(names) - set(TASKS))}")
+        base = [(n, k) for n, k in SUITES[args.suite] if n in names] if args.suite else [(n, 0) for n in names]
+    else:
+        args.suite = args.suite or "quick"
+        base = SUITES[args.suite]
+    plan = [(n, min(k, args.limit) if k and args.limit else k or args.limit) for n, k in base if n not in skip]
+    if not plan:
+        ap.error("nothing to run")
     record(args.out, args, [n for n, _ in plan])
     t0 = time.monotonic()
     for name, limit in plan:
@@ -190,7 +209,7 @@ def cmd_run(argv: list[str]) -> int:
     rec = json.loads((args.out / "run.json").read_text())
     rec["runs"][-1]["finished"] = dt.datetime.now().isoformat(timespec="seconds")
     (args.out / "run.json").write_text(json.dumps(rec, indent=1) + "\n")
-    log(f"{args.suite} done in {(time.monotonic() - t0) / 60:.0f} min: {args.out}")
+    log(f"{args.suite or args.tasks} done in {(time.monotonic() - t0) / 60:.0f} min: {args.out}")
     return 0
 
 
