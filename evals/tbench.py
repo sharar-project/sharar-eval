@@ -19,7 +19,10 @@ the Terminus-2 agent driving the server's OpenAI endpoint, pass/fail per task fr
   A task's run lives in <run dir>/tbench/jobs/<task>#<attempt>/, so an interrupted run resumes per task.
 - **Concurrency.** Two tasks at a time at most. Each task container takes up to a few GiB, and
   Flash-Next leaves about 27 GiB free.
-- **Power.** About 89 pass/fail tasks per attempt can only detect differences of about 10 points.
+- **On the GB10** (2026-10-02): 78 of 89 tasks pass the oracle; the other 11 fail their reference
+  solution or image build on aarch64, twice. Flash-Next `fast` took 20 min for 3 tasks at 2 at a time
+  (solved 1), so the full suite (156 items) is about 18 h per arm.
+- **Power.** About 78 pass/fail tasks per attempt can only detect differences of about 10 points.
   Treat this as an agentic check, not a fine gate.
 """
 from __future__ import annotations
