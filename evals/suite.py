@@ -3,6 +3,7 @@ the versions that produced it, and one paired scorecard between two run director
 
     python -m evals.suite run --url http://127.0.0.1:30004 --label fast --suite quick --out runs/fast
     python -m evals.suite compare runs/exact runs/fast
+    python -m evals.suite show runs/fast                                                      # one run's scores
     python -m evals.suite run --label fast --tasks gpqa,mmlupro --limit 50 --out runs/fast   # any tasks, first N items
 
 Suites (Flash-Next on the GB10, 4 streams):
@@ -327,6 +328,46 @@ def show(card: dict, detail: bool) -> None:
                     print(f"  {g:<28} {scale * vb:7.2f}  {scale * (vc - vb):+6.2f}")
 
 
+def summary(run: Path) -> dict:
+    """One run's scores: every task's completed items, accuracy or mean score, tokens and capped answers."""
+    rec = json.loads((run / "run.json").read_text())
+    out = {"label": rec["label"], "engine": rec.get("engine"), "tasks": {}}
+    for name in TASKS:
+        if name == "needles":
+            if (nd := needle_stats(run)):
+                out["tasks"][name] = {"kind": "needles", **nd}
+            continue
+        items = load_items(run, name)
+        if not items:
+            continue
+        kind = "score" if "score" in items[0] else "binary"
+        key = "score" if kind == "score" else "correct"
+        mean = sum(float(x[key]) for x in items) / len(items)
+        out["tasks"][name] = {"kind": kind, "n": len(items), "score": mean if kind == "score" else 100 * mean,
+                              **side_stats(items, (rec["tasks"].get(name) or {}).get("max_tokens"))}
+    return out
+
+
+def cmd_show(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="evals.suite show")
+    ap.add_argument("run", type=Path)
+    ap.add_argument("--json", type=Path, help="also write the summary as JSON")
+    args = ap.parse_args(argv)
+    card = summary(args.run)
+    print(f"{card['label']} ({card['engine'] or 'engine not recorded'})\n")
+    print("| task | n | score | tokens/item | capped |")
+    print("|---|---:|---:|---:|---:|")
+    for name, r in card["tasks"].items():
+        if r["kind"] == "needles":
+            print(f"| needles | {r['n']} | {r['correct']}/{r['n']} | | |")
+        else:
+            unit = "%" if r["kind"] == "binary" else ""
+            print(f"| {name} | {r['n']} | {r['score']:.1f}{unit} | {r['tokens_per_item']:.0f} | {'' if r['capped'] is None else r['capped']} |")
+    if args.json:
+        args.json.write_text(json.dumps(card, indent=1) + "\n")
+    return 0
+
+
 def cmd_compare(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="evals.suite compare")
     ap.add_argument("base", type=Path)
@@ -346,7 +387,7 @@ def cmd_compare(argv: list[str]) -> int:
 
 
 def main() -> int:
-    cmds = {"run": cmd_run, "compare": cmd_compare}
+    cmds = {"run": cmd_run, "compare": cmd_compare, "show": cmd_show}
     if len(sys.argv) < 2 or sys.argv[1] not in cmds:
         print(__doc__)
         return 2
