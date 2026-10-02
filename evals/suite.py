@@ -37,7 +37,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from evals import accuracy_eval, datasets, hard_eval
+from evals import accuracy_eval, datasets, hard_eval, ruler2
 from evals.accuracy_eval import SERVER, mcnemar
 
 REPO = Path(__file__).resolve().parent.parent
@@ -53,6 +53,7 @@ TASKS = {
     "gpqa": (hard_eval, "gpqa", {}),
     "ifeval": (hard_eval, "ifeval", {}),
     "wmt": (hard_eval, "wmt", {}),
+    **{t: (ruler2, t, {}) for t in ruler2.TASKS},  # ruler2-32k, ruler2-64k, ruler2-128k
     "needles": (None, "needles", {"lengths": [16384, 65536], "depths": [0.9, 0.5, 0.1], "output_tokens": 64}),
 }
 FULL = [("gsm8k", 0), ("humaneval", 0), ("mbpp", 0), ("mgsm", 0)]
@@ -61,7 +62,8 @@ SUITES = {  # suite: [(task, first N items; 0 = all)]
     "quick": [("gsm8k", 300), ("humaneval", 0), ("mgsm-pl24", 0), ("needles", 0)],
     "full": FULL,
     "hard": HARD,
-    "all": FULL + HARD + [("needles", 0)],
+    "long": [("ruler2-32k", 300), ("ruler2-128k", 120)],
+    "all": FULL + HARD + [("ruler2-32k", 300), ("ruler2-128k", 120), ("needles", 0)],
 }
 # /get_server_info fields that identify a configuration (not its counters)
 SERVER_KEYS = ("engine", "target", "model_path", "revision", "w3_target_identity", "context_length", "max_running_requests",
@@ -98,7 +100,7 @@ def run_shard(name: str, url: str, items: list[dict], accept, concurrency: int) 
     mod, task, _ = TASKS[name]
     if mod is accuracy_eval:
         return mod.TASKS[task][2](url, items, accept, task_max_tokens(name), concurrency)
-    return hard_eval.run(task, url, items, accept, task_max_tokens(name), concurrency)
+    return mod.run(task, url, items, accept, task_max_tokens(name), concurrency)
 
 
 # ---------------------------------------------------------------- run
