@@ -6,13 +6,14 @@ the versions that produced it, and one paired scorecard between two run director
     python -m evals.suite run --label fast --tasks gpqa,mmlupro --limit 50 --out runs/fast   # any tasks, first N items
 
 Suites (Flash-Next on the GB10, 4 streams):
-    quick   GSM8K first 300, HumanEval 164, MGSM 24 per language (264), needles at 16K and 64K   ~1 h
+    quick   GSM8K first 300, HumanEval 164, MGSM 24 per language (264), needles at 16K and 64K   ~30 min
     full    GSM8K 1319, HumanEval 164, MBPP 500, MGSM 2750                                      ~4 h
     hard    MMLU-Pro 1,400, GPQA Diamond 198, IFEval 541, WMT24++ 1,000                          4-6 h
-    all     full + hard + needles
+    long    RULER v2 at 32K and 128K, 10 per task (120 each; evals/ruler2.py)                    ~3 h
+    all     full + hard + long + needles
 
 `--tasks a,b` runs those tasks instead of a suite (names: gsm8k, humaneval, mbpp, mgsm, mgsm-pl24,
-mmlupro, gpqa, ifeval, wmt, needles) and `--limit N` takes the first N items of each; both work with
+mmlupro, gpqa, ifeval, wmt, ruler2-32k, ruler2-64k, ruler2-128k, needles) and `--limit N` takes the first N items of each; both work with
 `--suite` too. A limited run is a prefix of the full one, so a later longer run only adds the rest.
 
 A run directory holds one server configuration. Each task runs in shards of 100 items
@@ -22,8 +23,8 @@ the engine version given with --engine, this repository's commit, the sha256 of 
 file read and each task's token cap; a later `run` into the same directory must match it.
 
 `compare` pairs the two runs item by item on every task both have (on the items both have):
-binary tasks with McNemar and a normal interval of the paired difference, WMT24++ with a paired
-bootstrap of chrF++, needles as counts. Pooled is all binary tasks together.
+binary tasks with McNemar and a normal interval of the paired difference, WMT24++ (chrF++) and
+RULER v2 (0-100 per item) with a paired bootstrap, needles as counts. Pooled is all binary tasks together.
 """
 from __future__ import annotations
 
@@ -62,8 +63,8 @@ SUITES = {  # suite: [(task, first N items; 0 = all)]
     "quick": [("gsm8k", 300), ("humaneval", 0), ("mgsm-pl24", 0), ("needles", 0)],
     "full": FULL,
     "hard": HARD,
-    "long": [("ruler2-32k", 300), ("ruler2-128k", 120)],
-    "all": FULL + HARD + [("ruler2-32k", 300), ("ruler2-128k", 120), ("needles", 0)],
+    "long": [("ruler2-32k", 120), ("ruler2-128k", 120)],  # 10 per RULER v2 task at each length
+    "all": FULL + HARD + [("ruler2-32k", 120), ("ruler2-128k", 120), ("needles", 0)],
 }
 # /get_server_info fields that identify a configuration (not its counters)
 SERVER_KEYS = ("engine", "target", "model_path", "revision", "w3_target_identity", "context_length", "max_running_requests",

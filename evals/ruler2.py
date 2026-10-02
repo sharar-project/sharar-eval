@@ -1,7 +1,8 @@
 """RULER v2 long-context tasks against a running server (sharar#28): three families, four levels each.
 
     python -m evals.ruler2 prepare --length 32768          # generate the pinned sets (python -m evals.datasets fetch does all)
-    python -m evals.suite run --tasks ruler2-32k --limit 120 --label fast --out runs/fast
+    python -m evals.suite run --suite long --label fast --out runs/fast   # 32K and 128K, 10 per task (~3 h)
+    python -m evals.suite run --tasks ruler2-64k --limit 240 --label fast --out runs/fast
 
 RULER v2 (Hsieh et al., NVIDIA, 2025) grades each family from basic retrieval up to reasoning over what
 was retrieved, so a long-context loss shows as "cannot find it" or as "found it, cannot use it":
@@ -22,7 +23,9 @@ whose order changes between processes, so its sets are not reproducible); length
 4,096 new tokens (upstream: 16,384, thinking per model).
 
 A length's set is 100 samples of each task, interleaved (item i is task i % 12), so the first N items
-cover every task evenly. Scores are 0-100 per item: string match or 1 - word error rate for the
+cover every task evenly. Flash-Next `fast` (2026-10-02, 4 streams): 99.4 at 32K (48 items, ~19 s each) and
+86.5 at 128K (24 items, ~75 s each; the misses are mv_niah_hard and mk_niah_medium), so 128K is where
+configurations separate and 32K says whether a loss is about length at all. Scores are 0-100 per item: string match or 1 - word error rate for the
 retrieval and QA tasks, the boxed letter for the two MMLU-answering tasks; the task score is the mean.
 """
 from __future__ import annotations
