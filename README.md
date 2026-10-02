@@ -15,6 +15,9 @@ benchmarks and gates, and runs these evals against its served arms.
         --out runs/fast --engine "sharar:main-20261001 sha256:b615f4ecfda0"
     .venv/bin/python -m evals.suite compare runs/exact runs/fast
 
+    # any tasks, first N items of each (a later, longer run into the same directory only adds the rest)
+    .venv/bin/python -m evals.suite run --label fast --tasks gpqa,mmlupro --limit 50 --out runs/fast
+
 | Suite | Tasks | Time per arm (Flash-Next, 4 streams) |
 |---|---|---|
 | `quick` | GSM8K first 300, HumanEval 164, MGSM 24 per language (264), needles at 16K and 64K | ~1 h |
@@ -22,6 +25,9 @@ benchmarks and gates, and runs these evals against its served arms.
 | `hard` | MMLU-Pro 1,400 (100 per category), GPQA Diamond 198, IFEval 541 (strict), WMT24++ 1,000 (English into 10 languages, chrF++) | 4-6 h |
 | `all` | `full` + `hard` + needles | ~10 h |
 
+- **Tasks:** gsm8k, humaneval, mbpp, mgsm, mgsm-pl24, mmlupro, gpqa, ifeval, wmt, needles.
+  `--tasks` picks any of them instead of a suite, `--limit N` takes the first N items of each,
+  and `--skip` leaves one out.
 - **One run directory per server configuration.** It holds 100-item shards per task, so
   an interrupted run resumes where it stopped, and `full` reuses the GSM8K shards `quick` wrote.
 - **`run.json` records the run.** It holds the server's `/get_server_info` and the engine
