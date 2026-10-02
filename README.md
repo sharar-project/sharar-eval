@@ -1,4 +1,4 @@
-# sharar-evals
+# sharar-eval
 
 Engine-agnostic evaluations for local inference servers on the GB10: everything
 here talks HTTP (OpenAI chat completions) and imports nothing from the engine, so
