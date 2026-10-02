@@ -23,7 +23,9 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
-DATASET = Path("/home/yke/sharar-results/datasets/math500/test.jsonl")
+from evals.datasets import ROOT
+
+DATASET = ROOT / "math500" / "test.jsonl"
 PROMPT = "{problem}\n\nPlease reason step by step, and put your final answer within \\boxed{{}}."
 
 

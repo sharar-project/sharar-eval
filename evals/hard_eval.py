@@ -4,9 +4,8 @@ ten languages, chrF++). GSM8K and HumanEval sit at 93-95% for these models, so a
 thousands of items; these tasks sit lower, test knowledge, chat and multilingual generation, where
 lossy weight changes move the distribution most, and give more discordant pairs per item.
 
-    .venv-evals/bin/python -m evals.hard_eval fetch                      # pinned datasets into $SHARAR_RESULTS/datasets/hard
-    .venv-evals/bin/python -m evals.hard_eval --task mmlupro --label fast --output DIR
-    .venv-evals/bin/python -m evals.hard_eval compare DIR/exact-mmlupro.json DIR/fast-mmlupro.json
+    python -m evals.hard_eval --task mmlupro --label fast --output DIR
+    python -m evals.hard_eval compare DIR/exact-mmlupro.json DIR/fast-mmlupro.json
 
 Requests and sampling follow `evals.accuracy_eval` (greedy, thinking disabled, identical prompts in
 every arm, `--accept` as there; the default here is `server`, the arm's profile decides). MMLU-Pro
@@ -17,8 +16,7 @@ instruction_following_eval, Apache-2.0); WMT24++ takes the first `--per-language
 (default 100) of each language and scores sentence chrF++ (sacrebleu). Binary tasks compare paired with
 McNemar, WMT24++ with a paired bootstrap of the mean chrF++ and a sign test.
 
-Extra dependencies (sacrebleu, langdetect, nltk, immutabledict, absl-py, pyarrow for `fetch`) live in
-.venv-evals: `python3 -m venv .venv-evals && .venv-evals/bin/pip install -r requirements-hard.txt`.
+Datasets: `python -m evals.datasets fetch` (GPQA is gated: HF_TOKEN).
 """
 from __future__ import annotations
 
@@ -37,8 +35,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from evals.accuracy_eval import SAMPLING, SERVER, ask, mcnemar
+from evals.datasets import ROOT, download as fetch_url
 
-DATA = Path(os.environ.get("SHARAR_RESULTS", "/home/yke/sharar-results")) / "datasets" / "hard"
+DATA = ROOT / "hard"
 os.environ.setdefault("NLTK_DATA", str(DATA.parent / "nltk"))
 
 SOURCES = {  # dataset repository, pinned revision, file(s)
@@ -54,10 +53,7 @@ ANSWER = re.compile(r"(?:Answer|answer is)\s*[:：]?\s*\(?([A-J])\)?")
 
 
 def download(repo: str, revision: str, path: str) -> bytes:
-    req = urllib.request.Request(f"https://huggingface.co/datasets/{repo}/resolve/{revision}/{path}",
-                                 headers={"Authorization": f"Bearer {os.environ['HF_TOKEN']}"} if os.environ.get("HF_TOKEN") else {})
-    with urllib.request.urlopen(req, timeout=300) as r:
-        return r.read()
+    return fetch_url(f"https://huggingface.co/datasets/{repo}/resolve/{revision}/{path}")
 
 
 def fetch() -> None:
@@ -188,6 +184,23 @@ def run(task: str, url: str, items: list[dict], accept, max_tokens: int, concurr
         return list(pool.map(lambda p: one(*p), enumerate(items)))
 
 
+# ---------------------------------------------------------------- tasks
+
+# Generous caps: thinking is off but the model still reasons at length, and a capped answer scores as wrong,
+# which favours whichever arm writes shorter answers (GPQA at 2,048: half the exact arm's answers were cut off).
+TASKS = {  # task: (dataset files, default max_tokens)
+    "mmlupro": (["hard/mmlupro.jsonl"], 4096),
+    "gpqa": (["hard/gpqa_diamond.jsonl"], 8192),
+    "ifeval": (["hard/ifeval.jsonl", "nltk/tokenizers/punkt.zip", "nltk/tokenizers/punkt_tab.zip"], 4096),
+    "wmt": (["hard/wmt24pp.jsonl"], 1024),
+}
+
+
+def load(task: str, per_category: int = 100, per_language: int = 100) -> list[dict]:
+    return {"mmlupro": lambda: mmlupro_items(per_category), "gpqa": gpqa_items, "ifeval": ifeval_items,
+            "wmt": lambda: wmt_items(per_language)}[task]()
+
+
 # ---------------------------------------------------------------- compare
 
 def paired_scores(a: list[float], b: list[float], resamples: int = 2000) -> dict:
@@ -237,12 +250,9 @@ def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "compare":
         compare(sys.argv[2:])
         return 0
-    if len(sys.argv) > 1 and sys.argv[1] == "fetch":
-        fetch()
-        return 0
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", default="http://127.0.0.1:30004")
-    ap.add_argument("--task", choices=("mmlupro", "gpqa", "ifeval", "wmt"), required=True)
+    ap.add_argument("--task", choices=sorted(TASKS), required=True)
     ap.add_argument("--label", required=True)
     ap.add_argument("--accept", default="server", help="K:M acceptance pinned on every request (1:0 exact); 'server' (default): the arm's profile")
     ap.add_argument("--per-category", type=int, default=100, help="mmlupro: the first N items of each of the 14 categories")
@@ -256,17 +266,10 @@ def main() -> int:
     args = ap.parse_args()
     SERVER.update(model=args.model, plain=args.plain)
     accept = None if args.accept == "server" else (int(args.accept.split(":")[0]), float(args.accept.split(":")[1]))
-    items, max_tokens = {
-        # generous caps: thinking is off but the model still reasons at length, and a capped answer scores as wrong,
-        # which favours whichever arm writes shorter answers (GPQA at 2,048: half the exact arm's answers were cut off)
-        "mmlupro": lambda: (mmlupro_items(args.per_category), 4096),
-        "gpqa": lambda: (gpqa_items(), 8192),
-        "ifeval": lambda: (ifeval_items(), 4096),
-        "wmt": lambda: (wmt_items(args.per_language), 1024),
-    }[args.task]()
+    items = load(args.task, args.per_category, args.per_language)
     if args.limit:
         items = items[:args.limit]
-    max_tokens = args.max_tokens or max_tokens
+    max_tokens = args.max_tokens or TASKS[args.task][1]
     t0 = time.perf_counter()
     result_rows = run(args.task, args.url, items, accept, max_tokens, args.concurrency)
     wall = time.perf_counter() - t0
