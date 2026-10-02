@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 runs/
 out/
+.venv-evals/
+.venv-harbor/
