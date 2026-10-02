@@ -23,6 +23,8 @@ PINS = Path(__file__).resolve().parent.parent / "datasets.sha256"
 GH = "https://raw.githubusercontent.com"
 URL_NLP = f"{GH}/google-research/url-nlp/452a21ad3dae5668c06ceeac21ff073e1e40f9be/mgsm"
 NLTK = f"{GH}/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/tokenizers"
+MMLU = "https://huggingface.co/datasets/cais/mmlu/resolve/c30699e8356da336a370243923dbaf21066bb9fe/all"
+HOTPOT = "https://huggingface.co/datasets/hotpotqa/hotpot_qa/resolve/1908d6afbbead072334abe2965f91bd2709910ab/distractor"
 FILES = {  # dataset path: pinned source URL
     "accuracy/gsm8k_test.jsonl": f"{GH}/openai/grade-school-math/3101c7d5072418e28b9008a6636bde82a006892c/grade_school_math/data/test.jsonl",
     "accuracy/HumanEval.jsonl.gz": f"{GH}/openai/human-eval/6d43fb980f9fee3c892a914eda09951f772ad10d/data/HumanEval.jsonl.gz",
@@ -32,6 +34,11 @@ FILES = {  # dataset path: pinned source URL
     "math500/test.jsonl": "https://huggingface.co/datasets/HuggingFaceH4/MATH-500/resolve/6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be/test.jsonl",
     "nltk/tokenizers/punkt.zip": f"{NLTK}/punkt.zip",
     "nltk/tokenizers/punkt_tab.zip": f"{NLTK}/punkt_tab.zip",
+    # RULER v2 sources (evals/ruler2.py generates the sets from them)
+    "ruler2/src/mmlu_test.parquet": f"{MMLU}/test-00000-of-00001.parquet",
+    "ruler2/src/mmlu_auxiliary_train.parquet": f"{MMLU}/auxiliary_train-00000-of-00001.parquet",
+    **{f"ruler2/src/hotpot_{n}.parquet": f"{HOTPOT}/{n}.parquet"
+       for n in ("train-00000-of-00002", "train-00001-of-00002", "validation-00000-of-00001")},
     "long_context/tokenizer.json": "https://huggingface.co/RadixArk/Qwen3.8-27B-NVFP4/resolve/319f741cce68d7914884900c138a1fbb70a42f30/tokenizer.json",
 }
 # Needle corpus: CPython 3.12.7's Lib/*.py in path order, cut after the file that passes CORPUS_CHARS
@@ -110,6 +117,11 @@ def fetch() -> None:
         print("fetch long_context/corpus.txt (CPython 3.12.7 Lib)", flush=True)
         corpus.parent.mkdir(parents=True, exist_ok=True)
         corpus.write_bytes(build_corpus())
+    from evals import ruler2  # generated from the pinned sources with the pinned tokenizer (about 15 minutes)
+    for length in ruler2.LENGTHS.values():
+        if not (ROOT / f"ruler2/ruler2-{length}.jsonl").is_file():
+            print(f"generate ruler2/ruler2-{length}.jsonl", flush=True)
+            ruler2.prepare(length)
     if not all((ROOT / "hard" / f).is_file() for f in ("mmlupro.jsonl", "gpqa_diamond.jsonl", "ifeval.jsonl", "wmt24pp.jsonl")):
         from evals import hard_eval  # needs pyarrow; GPQA is gated (HF_TOKEN)
         hard_eval.fetch()

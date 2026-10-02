@@ -5,3 +5,5 @@ immutabledict==4.2.1
 absl-py==2.1.0
 pyarrow==17.0.0
 tokenizers==0.22.2
+wonderwords==2.2.0
+editdistance==0.8.1
