@@ -10,10 +10,11 @@ Suites (Flash-Next on the GB10, 4 streams):
     full    GSM8K 1319, HumanEval 164, MBPP 500, MGSM 2750                                      ~4 h
     hard    MMLU-Pro 1,400, GPQA Diamond 198, IFEval 541, WMT24++ 1,000                          4-6 h
     long    RULER v2 at 32K and 128K, 10 per task (120 each; evals/ruler2.py)                    ~3 h
-    all     full + hard + long + needles
+    agentic Terminal-Bench 2.1 through Harbor, every oracle-valid task twice (evals/tbench.py)   ~1 day
+    all     full + hard + long + needles (not agentic)
 
 `--tasks a,b` runs those tasks instead of a suite (names: gsm8k, humaneval, mbpp, mgsm, mgsm-pl24,
-mmlupro, gpqa, ifeval, wmt, ruler2-32k, ruler2-64k, ruler2-128k, needles) and `--limit N` takes the first N items of each; both work with
+mmlupro, gpqa, ifeval, wmt, ruler2-32k, ruler2-64k, ruler2-128k, tbench, needles) and `--limit N` takes the first N items of each; both work with
 `--suite` too. A limited run is a prefix of the full one, so a later longer run only adds the rest.
 
 A run directory holds one server configuration. Each task runs in shards of 100 items
@@ -38,7 +39,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from evals import accuracy_eval, datasets, hard_eval, ruler2
+from evals import accuracy_eval, datasets, hard_eval, ruler2, tbench
 from evals.accuracy_eval import SERVER, mcnemar
 
 REPO = Path(__file__).resolve().parent.parent
@@ -55,6 +56,7 @@ TASKS = {
     "ifeval": (hard_eval, "ifeval", {}),
     "wmt": (hard_eval, "wmt", {}),
     **{t: (ruler2, t, {}) for t in ruler2.TASKS},  # ruler2-32k, ruler2-64k, ruler2-128k
+    "tbench": (tbench, "tbench", {}),
     "needles": (None, "needles", {"lengths": [16384, 65536], "depths": [0.9, 0.5, 0.1], "output_tokens": 64}),
 }
 FULL = [("gsm8k", 0), ("humaneval", 0), ("mbpp", 0), ("mgsm", 0)]
@@ -64,6 +66,7 @@ SUITES = {  # suite: [(task, first N items; 0 = all)]
     "full": FULL,
     "hard": HARD,
     "long": [("ruler2-32k", 120), ("ruler2-128k", 120)],  # 10 per RULER v2 task at each length
+    "agentic": [("tbench", 0)],  # every oracle-valid Terminal-Bench 2.1 task, two attempts (not in all: about a day)
     "all": FULL + HARD + [("ruler2-32k", 120), ("ruler2-128k", 120), ("needles", 0)],
 }
 # /get_server_info fields that identify a configuration (not its counters)
@@ -97,11 +100,12 @@ def task_max_tokens(name: str) -> int | None:
     return mod.TASKS[task][1] if mod else None
 
 
-def run_shard(name: str, url: str, items: list[dict], accept, concurrency: int) -> list[dict]:
+def run_shard(out: Path, name: str, url: str, items: list[dict], accept, concurrency: int) -> list[dict]:
     mod, task, _ = TASKS[name]
     if mod is accuracy_eval:
         return mod.TASKS[task][2](url, items, accept, task_max_tokens(name), concurrency)
-    return mod.run(task, url, items, accept, task_max_tokens(name), concurrency)
+    workdir = {"workdir": out / name} if getattr(mod, "WORKDIR", False) else {}  # tbench keeps its harbor jobs there
+    return mod.run(task, url, items, accept, task_max_tokens(name), concurrency, **workdir)
 
 
 # ---------------------------------------------------------------- run
@@ -160,7 +164,7 @@ def run_task(out: Path, name: str, limit: int, url: str, accept, concurrency: in
         if not want:
             continue
         t0 = time.monotonic()
-        rows = run_shard(name, url, want, accept, concurrency)
+        rows = run_shard(out, name, url, want, accept, concurrency)
         for r in rows:
             r["index"] += first
         path.parent.mkdir(parents=True, exist_ok=True)
