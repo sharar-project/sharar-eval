@@ -20,18 +20,25 @@ from pathlib import Path
 
 from tokenizers import Tokenizer
 
-DEFAULT_CORPUS = '/home/yke/smcsd/3rdparty/sglang/python/sglang'
-DEFAULT_TOKENIZER = ('/home/yke/data/huggingface-qwen38-nvfp4-dspark/models--RadixArk--Qwen3.8-27B-NVFP4/snapshots/'
-                     '319f741cce68d7914884900c138a1fbb70a42f30/tokenizer.json')
+from evals.datasets import ROOT
+
+DEFAULT_CORPUS = ROOT / 'long_context' / 'corpus.txt'  # pinned: python -m evals.datasets fetch
+DEFAULT_TOKENIZER = ROOT / 'long_context' / 'tokenizer.json'
+FILES = ['long_context/corpus.txt', 'long_context/tokenizer.json']
 
 
 def corpus_ids(root, tok, need):
-    ids = []
-    for path in sorted(Path(root).rglob('*.py')):
-        text = path.read_text(errors='replace')
-        ids += tok.encode(f'\n# ===== {path.relative_to(root)} =====\n{text}').ids
-        if len(ids) >= need:
-            break
+    """Token ids of the corpus file (or, for a directory, its *.py files in path order)."""
+    root = Path(root)
+    if root.is_file():
+        ids = tok.encode(root.read_text()).ids
+    else:
+        ids = []
+        for path in sorted(root.rglob('*.py')):
+            text = path.read_text(errors='replace')
+            ids += tok.encode(f'\n# ===== {path.relative_to(root)} =====\n{text}').ids
+            if len(ids) >= need:
+                break
     if len(ids) < need:
         raise SystemExit(f'corpus has {len(ids)} tokens, need {need}')
     return ids
@@ -67,29 +74,27 @@ def server_stats(url):
     return info.get('spec_stats') or info.get('speculative_stats') or {}, info
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--url', required=True)
-    ap.add_argument('--lengths', default='10240,32768,65536,131072,262144', help='context budgets (prompt + output) in tokens')
-    ap.add_argument('--depths', default='0.9,0.5,0.1')
-    ap.add_argument('--output-tokens', type=int, default=512)
-    ap.add_argument('--corpus', default=DEFAULT_CORPUS)
-    ap.add_argument('--tokenizer', default=DEFAULT_TOKENIZER)
-    ap.add_argument('--seed', type=int, default=7)
-    ap.add_argument('--log', required=True)
-    args = ap.parse_args()
-    url = args.url.rstrip('/')
-    tok = Tokenizer.from_file(args.tokenizer)
-    lengths = [int(x) for x in args.lengths.split(',')]
-    depths = [float(x) for x in args.depths.split(',')]
-    margin = 256 + args.output_tokens  # template, question and retokenization drift
-    ids = corpus_ids(args.corpus, tok, sum(lengths))
-    rng = random.Random(args.seed)
-    out = open(args.log, 'a')
+def run(url, log, lengths=(10240, 32768, 65536, 131072, 262144), depths=(0.9, 0.5, 0.1), output_tokens=512,
+        corpus=DEFAULT_CORPUS, tokenizer=DEFAULT_TOKENIZER, seed=7):
+    """Append one row per needle and per decode measurement to `log` (JSONL); return the rows."""
+    url = url.rstrip('/')
+    tok = Tokenizer.from_file(str(tokenizer))
+    margin = 256 + output_tokens  # template, question and retokenization drift
+    ids = corpus_ids(corpus, tok, sum(lengths))
+    rng = random.Random(seed)
+    rows = []
+    out = open(log, 'a')
+
+    def emit(row):
+        rows.append(row)
+        out.write(json.dumps(row) + '\n')
+        out.flush()
+        print(json.dumps(row), flush=True)
+
     _, info = server_stats(url)
     served = info.get('context_length')
-    out.write(json.dumps({'kind': 'server', 'context_length': served, 'kv_pages': info.get('kv_pages'),
-                          'state_slots': info.get('state_slots'), 'ledger_gib': info.get('ledger_gib')}) + '\n')
+    emit({'kind': 'server', 'context_length': served, 'kv_pages': info.get('kv_pages'),
+          'state_slots': info.get('state_slots'), 'ledger_gib': info.get('ledger_gib')})
     offset = 0
     for length in lengths:
         if served is not None and length > served:
@@ -109,30 +114,40 @@ def main():
                 'model': 'x', 'messages': [{'role': 'user', 'content': text + question}], 'max_tokens': 24,
                 'temperature': 0, 'accept_top_k': 1, 'trace': False, 'stream': True,
                 'stream_options': {'include_usage': True}, 'chat_template_kwargs': {'enable_thinking': False}})
-            row = {'kind': 'needle', 'length': length, 'depth': depth, 'prompt_tokens': (usage or {}).get('prompt_tokens'),
-                   'cached_tokens': ((usage or {}).get('prompt_tokens_details') or {}).get('cached_tokens'),
-                   'ttft_s': round(ttft, 3), 'answer': answer.strip(), 'correct': code in answer, 'finish': finish}
-            out.write(json.dumps(row) + '\n')
-            out.flush()
-            print(json.dumps(row), flush=True)
+            emit({'kind': 'needle', 'length': length, 'depth': depth, 'prompt_tokens': (usage or {}).get('prompt_tokens'),
+                  'cached_tokens': ((usage or {}).get('prompt_tokens_details') or {}).get('cached_tokens'),
+                  'ttft_s': round(ttft, 3), 'answer': answer.strip(), 'correct': code in answer, 'finish': finish})
         for mode, extra in (('exact', {'accept_top_k': 1}), ('relaxed-default', {})):
             before, _ = server_stats(url)
             ttft, last, text, usage, finish = post(url, {
                 'model': 'x', 'messages': [{'role': 'user', 'content': filler + '\n\nWrite a detailed technical walkthrough of the code above, file by file.'}],
-                'max_tokens': args.output_tokens, 'ignore_eos': True, 'temperature': 0, 'trace': False, 'stream': True,
+                'max_tokens': output_tokens, 'ignore_eos': True, 'temperature': 0, 'trace': False, 'stream': True,
                 'stream_options': {'include_usage': True}, 'chat_template_kwargs': {'enable_thinking': False}, **extra})
             after, _ = server_stats(url)
             n = (usage or {}).get('completion_tokens') or 0
             delta = {k: after.get(k, 0) - before.get(k, 0) for k in ('rounds', 'proposed', 'accepted', 'emitted', 'relaxed_accepts')}
             decode_s = last - ttft
-            row = {'kind': 'decode', 'length': length, 'mode': mode, 'prompt_tokens': (usage or {}).get('prompt_tokens'),
-                   'completion_tokens': n, 'ttft_s': round(ttft, 3), 'decode_s': round(decode_s, 3),
-                   'decode_tps': round((n - 1) / decode_s, 2) if n > 1 and decode_s > 0 else None,
-                   'spec': delta, 'tokens_per_round': round(delta['emitted'] / delta['rounds'], 3) if delta.get('rounds') else None,
-                   'round_ms': round(1000 * decode_s / delta['rounds'], 2) if delta.get('rounds') else None, 'finish': finish}
-            out.write(json.dumps(row) + '\n')
-            out.flush()
-            print(json.dumps(row), flush=True)
+            emit({'kind': 'decode', 'length': length, 'mode': mode, 'prompt_tokens': (usage or {}).get('prompt_tokens'),
+                  'completion_tokens': n, 'ttft_s': round(ttft, 3), 'decode_s': round(decode_s, 3),
+                  'decode_tps': round((n - 1) / decode_s, 2) if n > 1 and decode_s > 0 else None,
+                  'spec': delta, 'tokens_per_round': round(delta['emitted'] / delta['rounds'], 3) if delta.get('rounds') else None,
+                  'round_ms': round(1000 * decode_s / delta['rounds'], 2) if delta.get('rounds') else None, 'finish': finish})
+    return rows
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument('--url', required=True)
+    ap.add_argument('--lengths', default='10240,32768,65536,131072,262144', help='context budgets (prompt + output) in tokens')
+    ap.add_argument('--depths', default='0.9,0.5,0.1')
+    ap.add_argument('--output-tokens', type=int, default=512)
+    ap.add_argument('--corpus', default=DEFAULT_CORPUS)
+    ap.add_argument('--tokenizer', default=DEFAULT_TOKENIZER)
+    ap.add_argument('--seed', type=int, default=7)
+    ap.add_argument('--log', required=True)
+    args = ap.parse_args()
+    run(args.url, args.log, [int(x) for x in args.lengths.split(',')], [float(x) for x in args.depths.split(',')],
+        args.output_tokens, args.corpus, args.tokenizer, args.seed)
 
 
 if __name__ == '__main__':

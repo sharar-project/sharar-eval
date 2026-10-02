@@ -4,3 +4,4 @@ nltk==3.9.1
 immutabledict==4.2.1
 absl-py==2.1.0
 pyarrow==17.0.0
+tokenizers==0.22.2

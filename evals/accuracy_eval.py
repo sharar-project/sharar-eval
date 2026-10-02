@@ -36,7 +36,9 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-DATA = Path(os.environ.get("SHARAR_RESULTS", "/home/yke/sharar-results")) / "datasets" / "accuracy"
+from evals.datasets import ROOT
+
+DATA = ROOT / "accuracy"
 
 
 def post(url: str, body: dict, timeout: float = 900) -> dict:
@@ -202,6 +204,24 @@ def run_mbpp(url, items, accept, max_tokens, concurrency):
         return list(pool.map(lambda p: one(*p), enumerate(items)))
 
 
+# ---------------------------------------------------------------- tasks
+
+TASKS = {  # task: (dataset files, default max_tokens, runner)
+    "gsm8k": (["accuracy/gsm8k_test.jsonl"], 640, run_gsm8k),
+    "humaneval": (["accuracy/HumanEval.jsonl"], 768, run_humaneval),
+    "mbpp": (["accuracy/mbpp.jsonl"], 768, run_mbpp),
+    "mgsm": ([f"accuracy/mgsm/mgsm_{lang}.tsv" for lang in MGSM_LANGS], 768, run_mgsm),
+}
+
+
+def load(task: str, per_language: int = 0) -> list[dict]:
+    if task == "mgsm":
+        return mgsm_items(per_language)
+    if task == "mbpp":
+        return mbpp_items()
+    return [json.loads(l) for l in (ROOT / TASKS[task][0][0]).read_text().splitlines() if l.strip()]
+
+
 # ---------------------------------------------------------------- compare
 
 def mcnemar(a: list[bool], b: list[bool]) -> dict:
@@ -229,7 +249,7 @@ def main() -> int:
         return 0
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", default="http://127.0.0.1:30001")
-    ap.add_argument("--task", choices=("gsm8k", "humaneval", "mgsm", "mbpp"), required=True)
+    ap.add_argument("--task", choices=sorted(TASKS), required=True)
     ap.add_argument("--label", required=True)
     ap.add_argument("--temperature", type=float, default=0.0, help="sample at this temperature (top_p 0.95, top_k 20, one seed per prompt shared by every arm)")
     ap.add_argument("--accept", default="1:0", help="K:M acceptance pinned on every request (1:0 exact); 'server': send none (the server's default)")
@@ -250,18 +270,8 @@ def main() -> int:
     else:
         k, m = args.accept.split(":")
         accept = (int(k), float(m))
-    if args.task == "gsm8k":
-        items = [json.loads(l) for l in (DATA / "gsm8k_test.jsonl").read_text().splitlines() if l.strip()]
-        run, max_tokens = run_gsm8k, args.max_tokens or 640
-    elif args.task == "mgsm":
-        items = mgsm_items(args.per_language)
-        run, max_tokens = run_mgsm, args.max_tokens or 768
-    elif args.task == "mbpp":
-        items = mbpp_items()
-        run, max_tokens = run_mbpp, args.max_tokens or 768
-    else:
-        items = [json.loads(l) for l in (DATA / "HumanEval.jsonl").read_text().splitlines() if l.strip()]
-        run, max_tokens = run_humaneval, args.max_tokens or 768
+    items = load(args.task, args.per_language)
+    run, max_tokens = TASKS[args.task][2], args.max_tokens or TASKS[args.task][1]
     items = items[args.start:]
     if args.limit:
         items = items[:args.limit]

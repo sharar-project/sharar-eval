@@ -3,7 +3,7 @@ name = "sharar-eval"
 version = "0.1.0"
 description = "Engine-agnostic HTTP evaluations for local inference servers"
 requires-python = ">=3.10"
-dependencies = ["tokenizers"]
+dependencies = []  # requirements.txt pins them
 
 [tool.setuptools]
 packages = ["evals"]
