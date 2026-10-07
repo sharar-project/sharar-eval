@@ -15,8 +15,9 @@ Suites (Flash-Next on the GB10, 4 streams):
     all     full + hard + long + needles (not agentic)
 
 `--tasks a,b` runs those tasks instead of a suite (names: gsm8k, humaneval, mbpp, mgsm, mgsm-pl24,
-mmlupro, gpqa, ifeval, wmt, ruler2-32k, ruler2-64k, ruler2-128k, tbench, needles) and `--limit N` takes the first N items of each; both work with
-`--suite` too. A limited run is a prefix of the full one, so a later longer run only adds the rest.
+mmlupro, gpqa, ifeval, wmt, ruler2-32k, ruler2-64k, ruler2-128k, tbench, tbench-claude-code, tbench-opencode, needles) and `--limit N`
+takes the first N items of each; both work with `--suite` too. tbench-claude-code and tbench-opencode are Terminal-Bench with
+native-tool agents, which checks the server's tool calls (evals/tbench.py). A limited run is a prefix of the full one, so a later longer run only adds the rest.
 
 A run directory holds one server configuration. Each task runs in shards of 100 items
 (<task>/s00000.json, ...), so an interrupted run resumes where it stopped and `full` reuses
@@ -40,7 +41,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from evals import accuracy_eval, datasets, hard_eval, ruler2, tbench
+from evals import accuracy_eval, agent_traffic, datasets, hard_eval, ruler2, tbench
 from evals.accuracy_eval import SERVER, mcnemar
 
 REPO = Path(__file__).resolve().parent.parent
@@ -57,7 +58,7 @@ TASKS = {
     "ifeval": (hard_eval, "ifeval", {}),
     "wmt": (hard_eval, "wmt", {}),
     **{t: (ruler2, t, {}) for t in ruler2.TASKS},  # ruler2-32k, ruler2-64k, ruler2-128k
-    "tbench": (tbench, "tbench", {}),
+    **{t: (tbench, t, {}) for t in tbench.AGENTS},  # tbench (Terminus-2), tbench-claude-code, tbench-opencode
     "needles": (None, "needles", {"lengths": [16384, 65536], "depths": [0.9, 0.5, 0.1], "output_tokens": 64}),
 }
 FULL = [("gsm8k", 0), ("humaneval", 0), ("mbpp", 0), ("mgsm", 0)]
@@ -345,6 +346,9 @@ def summary(run: Path) -> dict:
         mean = sum(float(x[key]) for x in items) / len(items)
         out["tasks"][name] = {"kind": kind, "n": len(items), "score": mean if kind == "score" else 100 * mean,
                               **side_stats(items, (rec["tasks"].get(name) or {}).get("max_tokens"))}
+        if any("traffic" in x for x in items):  # native-tool agents: the tool-call check of their recorded traffic
+            out["tasks"][name]["traffic"] = {k: sum((x.get("traffic") or {}).get(k, 0) for x in items)
+                                             for k in ("requests", "tool_calls", *agent_traffic.ANOMALIES)}
     return out
 
 
@@ -363,6 +367,10 @@ def cmd_show(argv: list[str]) -> int:
         else:
             unit = "%" if r["kind"] == "binary" else ""
             print(f"| {name} | {r['n']} | {r['score']:.1f}{unit} | {r['tokens_per_item']:.0f} | {'' if r['capped'] is None else r['capped']} |")
+    for name, r in card["tasks"].items():
+        if (t := r.get("traffic")):
+            faults = ", ".join(f"{k} {t[k]}" for k in agent_traffic.ANOMALIES if t[k]) or "none"
+            print(f"\n{name}: {t['requests']} requests, {t['tool_calls']} tool calls, tool-call faults: {faults}")
     if args.json:
         args.json.write_text(json.dumps(card, indent=1) + "\n")
     return 0
