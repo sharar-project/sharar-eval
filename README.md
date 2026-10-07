@@ -32,7 +32,7 @@ benchmarks and gates, and runs these evals against its served arms.
 | `all` | `full` + `hard` + `long` + needles (not `agentic`) | ~13 h |
 
 - **Tasks:** gsm8k, humaneval, mbpp, mgsm, mgsm-pl24, mmlupro, gpqa, ifeval, wmt, ruler2-32k,
-  ruler2-64k, ruler2-128k, tbench, needles.
+  ruler2-64k, ruler2-128k, tbench, tbench-claude-code, tbench-opencode, needles.
   `--tasks` picks any of them instead of a suite, `--limit N` takes the first N items of each,
   and `--skip` leaves one out.
 - **One run directory per server configuration.** It holds 100-item shards per task, so
@@ -80,7 +80,8 @@ every engine receives identical token IDs.
 | `evals.accuracy_eval` | GSM8K and MGSM (11 languages): exact match. HumanEval and MBPP: pass@1, sandboxed |
 | `evals.hard_eval` | MMLU-Pro, GPQA Diamond, IFEval (reference checker vendored in `evals/ifeval/`), WMT24++ (sharar#28) |
 | `evals.ruler2` | RULER v2 (NVIDIA, 2025): multi-key and multi-value needles and HotpotQA documents, each from basic retrieval to reasoning over what was retrieved (4 levels), at 32K/64K/128K. Ported from NeMo-Skills; `compare --detail` shows each of the 12 tasks |
-| `evals.tbench` | Terminal-Bench 2.1 (agentic tasks in a terminal) through Harbor with the Terminus-2 agent on the server's endpoint. Task images are built locally for aarch64, and `oracle` keeps only the tasks whose reference solution passes here (`evals/workloads/tbench_valid.json`) |
+| `evals.tbench` | Terminal-Bench 2.1 (agentic tasks in a terminal) through Harbor. `tbench` runs the Terminus-2 agent on the server's endpoint. `tbench-claude-code` and `tbench-opencode` run those agents with native tool calls through a recording proxy, and each item carries the tool-call check of its traffic. Task images are built locally for aarch64, and `oracle` keeps only the tasks whose reference solution passes here (`evals/workloads/tbench_valid.json`) |
+| `evals.agent_traffic` | A recording proxy for agent traffic and a tool-call check of what it recorded: leaked tool-call markup, bad JSON arguments, unknown tools, missing parameters, wrong stop reasons, HTTP errors |
 | `evals.long_context` | Needle retrieval and prefill/decode rates at 10K-262K |
 | `evals.h2h`, `evals.h2h_report` | Head-to-head serving benchmark: public probes, 22 decode prompts (greedy, t=0.7, t=1.0), long-context TTFT and needles, four-stream aggregate (`evals/workloads/h2h_v1.json`) |
 | `evals.identity` | Exact greedy output identity between two servers (the refactor gate: `run` twice, then `compare`) |
