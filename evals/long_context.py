@@ -9,7 +9,7 @@ request reuses the whole context and asks for a long walkthrough with EOS
 ignored, once exact and once with the server's relaxed default, to measure
 decode speed and speculation at that context.
 
-    python -m evals.long_context --url http://127.0.0.1:30002 --log out.jsonl
+    sharar-eval long-context --url http://127.0.0.1:30002 --log out.jsonl
 """
 import argparse
 import json
@@ -22,7 +22,7 @@ from tokenizers import Tokenizer
 
 from evals.datasets import ROOT
 
-DEFAULT_CORPUS = ROOT / 'long_context' / 'corpus.txt'  # pinned: python -m evals.datasets fetch
+DEFAULT_CORPUS = ROOT / 'long_context' / 'corpus.txt'  # pinned: sharar-eval datasets fetch
 DEFAULT_TOKENIZER = ROOT / 'long_context' / 'tokenizer.json'
 FILES = ['long_context/corpus.txt', 'long_context/tokenizer.json']
 

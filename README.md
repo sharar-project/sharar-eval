@@ -6,12 +6,14 @@ commands measure Sharar, SGLang, vLLM or anything else with that API.
 
 ## Install
 
-    python3 -m venv .venv
-    .venv/bin/pip install -r requirements.txt        # this checkout, editable, with the tests
+With [uv](https://docs.astral.sh/uv/):
+
+    uv sync                                          # the environment, from uv.lock
+    uv run sharar-eval --help                        # every command
 
 As a dependency of another project:
 
-    pip install "sharar-eval @ git+https://github.com/abdelfattah-lab/sharar-eval@<commit>"
+    uv add "sharar-eval @ git+https://github.com/abdelfattah-lab/sharar-eval@<commit>"
 
 ## Configuration
 
@@ -20,13 +22,13 @@ As a dependency of another project:
 | `SHARAR_RESULTS` | Datasets (`$SHARAR_RESULTS/datasets`) and speed results | `$XDG_DATA_HOME/sharar`, else `~/.local/share/sharar` (the same as sharar's) |
 | `SHARAR_HF_CACHE` | The Hugging Face cache holding the pinned Qwen3.8-27B snapshot (speed benchmarks tokenize with it) | `$HF_HUB_CACHE`, `$HF_HOME/hub`, else `~/.cache/huggingface/hub` |
 | `HF_TOKEN` | Fetching GPQA (a gated dataset) | none |
-| `SHARAR_AIPERF` | The `aiperf` binary for `evals.speed` | `aiperf` on `PATH`, else `.venv-aiperf/bin/aiperf` |
-| `SHARAR_HARBOR` | The `harbor` binary for Terminal-Bench | `.venv-harbor/bin/harbor`, else `harbor` on `PATH` |
+| `SHARAR_AIPERF` | The `aiperf` binary for `sharar-eval speed` | `aiperf` on `PATH` |
+| `SHARAR_HARBOR` | The `harbor` binary for Terminal-Bench | `harbor` on `PATH` |
 
 ## Datasets
 
-    .venv/bin/python -m evals.datasets fetch         # download what is missing, then check every hash
-    .venv/bin/python -m evals.datasets check         # check only
+    uv run sharar-eval datasets fetch                # download what is missing, then check every hash
+    uv run sharar-eval datasets check                # check only
 
 Every file comes from a pinned source (`evals/datasets.py`) and is checked against
 [`evals/datasets.sha256`](evals/datasets.sha256). Every suite run checks the files it reads.
@@ -44,11 +46,11 @@ Every file comes from a pinned source (`evals/datasets.py`) and is checked again
 
     URL=http://127.0.0.1:30004                       # the server under test
 
-    .venv/bin/python -m evals.suite run --url $URL --suite quick --label fast --out runs/fast \
-        --engine "<engine name and version>"
-    .venv/bin/python -m evals.suite run --url $URL --tasks gpqa,mmlupro --limit 50 --label fast --out runs/fast
-    .venv/bin/python -m evals.suite compare runs/exact runs/fast
-    .venv/bin/python -m evals.suite compare runs/exact runs/fast --detail       # per category and language
+    uv run sharar-eval run --url $URL --suite quick --label fast --out runs/fast --engine "<engine name and version>"
+    uv run sharar-eval run --url $URL --tasks gpqa,mmlupro --limit 50 --label fast --out runs/fast
+    uv run sharar-eval show runs/fast
+    uv run sharar-eval compare runs/exact runs/fast
+    uv run sharar-eval compare runs/exact runs/fast --detail       # per category and language
 
 For an engine other than Sharar, add `--plain --model <served model name>`.
 
@@ -83,61 +85,58 @@ For an engine other than Sharar, add `--plain --model <served model name>`.
 
 ## Terminal-Bench
 
-Harbor runs in its own environment. Once per machine, fetch the dataset, then build the task
+Harbor is installed as its own tool. Once per machine, fetch the dataset, then build the task
 images and keep the tasks whose reference solution passes here:
 
-    python3 -m venv .venv-harbor
-    .venv-harbor/bin/pip install -r requirements-harbor.txt
-    .venv/bin/python -m evals.datasets fetch
-    .venv/bin/python -m evals.tbench oracle --out runs/oracle      # writes evals/workloads/tbench_valid.json
+    uv tool install harbor==0.23.0
+    uv run sharar-eval datasets fetch
+    uv run sharar-eval tbench oracle --out runs/oracle             # writes evals/workloads/tbench_valid.json
 
 Then run `--suite agentic` or `--tasks tbench,tbench-claude-code,tbench-opencode` as above.
 
 ## Speed benchmarks
 
-`evals.speed` measures throughput and latency over HTTP with AIPerf. Inputs are tokenized on the
-client from the pinned tokenizer, so every engine receives identical token IDs.
+`sharar-eval speed` measures throughput and latency over HTTP with AIPerf. Inputs are tokenized on
+the client from the pinned tokenizer, so every engine receives identical token IDs.
 
-    python3 -m venv .venv-aiperf
-    .venv-aiperf/bin/pip install aiperf==0.12.0
+    uv tool install aiperf==0.12.0
+    uv run sharar-eval speed --url $URL --workload all                # frozen 10K/1K prompts, cold prefix, 1 stream
+    uv run sharar-eval speed --url $URL --accept omit --inputs <run>/frozen-inputs.json --baseline <run>
 
-    .venv/bin/python -m evals.speed --url $URL --workload all                  # frozen 10K/1K prompts, cold prefix, 1 stream
-    .venv/bin/python -m evals.speed --url $URL --accept omit --inputs <run>/frozen-inputs.json --baseline <run>
+## Commands
 
-| Module | What it measures |
+`uv run sharar-eval <command> --help` shows each command's arguments.
+
+| Command | What it does |
 |---|---|
-| `evals.speed` | AIPerf end-to-end and decode tokens/s on the frozen `code` / `design` / `reasoning` 10K/1K prompts: greedy with `ignore_eos`, cold prefix, concurrency 1, exact acceptance by default. `--baseline` compares runs with identical input IDs |
-| `evals.speed.sharegpt` | ShareGPT first turns in short / medium / long buckets at several concurrencies |
-| `evals.speed.competitive` | Engine-neutral native `/generate` cells with frozen token inputs (fixed work plus natural answers) |
-| `evals.speed.engine_matrix` | Sharar / SGLang / Atlas token-input matrix with attested output and cache counts |
-| `evals.speed.local`, `evals.speed.agent` | Frozen local-use requests (cache variants, mixed arrival, cancellation) and agent-shaped episodes |
+| `run`, `show`, `compare` | The suites above |
+| `datasets` | `fetch` and `check` the pinned datasets |
+| `speed` | AIPerf end-to-end and decode tokens/s on the frozen `code` / `design` / `reasoning` 10K/1K prompts: greedy with `ignore_eos`, cold prefix, concurrency 1, exact acceptance by default. `--baseline` compares runs with identical input IDs |
+| `sharegpt` | ShareGPT first turns in short / medium / long buckets at several concurrencies |
+| `competitive` | Engine-neutral native `/generate` cells with frozen token inputs (fixed work plus natural answers) |
+| `engine-matrix` | Sharar / SGLang / Atlas token-input matrix with attested output and cache counts |
+| `local`, `agent` | Frozen local-use requests (cache variants, mixed arrival, cancellation) and agent-shaped episodes |
+| `tbench` | Terminal-Bench 2.1 through Harbor: `oracle` once per machine. Runs go through `run`: `tbench` is the Terminus-2 agent on the server's endpoint; `tbench-claude-code` and `tbench-opencode` run those agents with native tool calls through a recording proxy, and each item carries the tool-call check of its traffic |
+| `accuracy` | GSM8K and MGSM (11 languages): exact match. HumanEval and MBPP: pass@1, sandboxed |
+| `hard` | MMLU-Pro, GPQA Diamond, IFEval (reference checker vendored in `evals/ifeval/`), WMT24++ |
+| `ruler2` | RULER v2 (NVIDIA, 2025): multi-key and multi-value needles and HotpotQA documents, each from basic retrieval to reasoning over what was retrieved (4 levels), at 32K/64K/128K. Ported from NeMo-Skills; `compare --detail` shows each of the 12 tasks |
+| `long-context` | Needle retrieval and prefill/decode rates at 10K-262K |
+| `h2h`, `h2h-report` | Head-to-head serving benchmark: public probes, 22 decode prompts (greedy, t=0.7, t=1.0), long-context TTFT and needles, four-stream aggregate (`evals/workloads/h2h_v1.json`) |
+| `identity` | Exact greedy output identity between two servers: `run` against each, then `compare` |
+| `tts` | Test-time scaling on MATH-500: greedy against self-consistency with n choices |
+| `agent-traffic` | A recording proxy for agent traffic and a tool-call check of what it recorded: leaked tool-call markup, bad JSON arguments, unknown tools, missing parameters, wrong stop reasons, HTTP errors |
 
-## Modules
+`accuracy`, `hard` and the other task commands run one task on their own, with a `compare` for their
+own result files:
 
-| Module | What it measures |
-|---|---|
-| `evals.suite` | The suites above: `run` and `compare` |
-| `evals.accuracy_eval` | GSM8K and MGSM (11 languages): exact match. HumanEval and MBPP: pass@1, sandboxed |
-| `evals.hard_eval` | MMLU-Pro, GPQA Diamond, IFEval (reference checker vendored in `evals/ifeval/`), WMT24++ |
-| `evals.ruler2` | RULER v2 (NVIDIA, 2025): multi-key and multi-value needles and HotpotQA documents, each from basic retrieval to reasoning over what was retrieved (4 levels), at 32K/64K/128K. Ported from NeMo-Skills; `compare --detail` shows each of the 12 tasks |
-| `evals.tbench` | Terminal-Bench 2.1 through Harbor. `tbench` runs the Terminus-2 agent on the server's endpoint; `tbench-claude-code` and `tbench-opencode` run those agents with native tool calls through a recording proxy, and each item carries the tool-call check of its traffic. Task images are built locally, and `oracle` keeps only the tasks whose reference solution passes on this machine |
-| `evals.agent_traffic` | A recording proxy for agent traffic and a tool-call check of what it recorded: leaked tool-call markup, bad JSON arguments, unknown tools, missing parameters, wrong stop reasons, HTTP errors |
-| `evals.long_context` | Needle retrieval and prefill/decode rates at 10K-262K |
-| `evals.h2h`, `evals.h2h_report` | Head-to-head serving benchmark: public probes, 22 decode prompts (greedy, t=0.7, t=1.0), long-context TTFT and needles, four-stream aggregate (`evals/workloads/h2h_v1.json`) |
-| `evals.identity` | Exact greedy output identity between two servers: `run` against each, then `compare` |
-| `evals.tts_eval` | Test-time scaling on MATH-500: greedy against self-consistency with n choices |
-| `evals.datasets` | `fetch` and `check` the pinned datasets |
-
-Each task module also runs alone, with a `compare` subcommand for its own result files:
-
-    .venv/bin/python -m evals.hard_eval --task gpqa --label x --output <dir>
+    uv run sharar-eval hard --task gpqa --label x --output <dir>
 
 ## Recording results
 
 Every result names both versions: this repository's commit and the engine's (image tag and commit,
 or the other engine's pinned image digest), plus the model revision and the serving configuration.
-`evals.suite` records all of these in `run.json`; pass `--engine`.
+`sharar-eval run` records all of these in `run.json`; pass `--engine`.
 
 ## Tests
 
-    .venv/bin/python -m pytest -q tests
+    uv run pytest -q tests

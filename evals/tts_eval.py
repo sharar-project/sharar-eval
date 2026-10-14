@@ -1,8 +1,8 @@
 """Test-time scaling on MATH-500: one greedy answer against self-consistency
 (n sampled answers from one prefill, majority vote over the boxed answers).
 
-    python3 -m evals.tts_eval --url http://127.0.0.1:30001 --label greedy --n 1 --output DIR
-    python3 -m evals.tts_eval --url ... --label sc4 --n 4 --temperature 0.7 --output DIR
+    sharar-eval tts --url http://127.0.0.1:30001 --label greedy --n 1 --output DIR
+    sharar-eval tts --url ... --label sc4 --n 4 --temperature 0.7 --output DIR
 
 Thinking disabled, "reason step by step, final answer in \\boxed{}". A seeded
 subset (--limit) spans every level. n=1 runs four problems at a time; n>1 runs

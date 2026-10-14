@@ -21,8 +21,11 @@ dependencies = [
   "jinja2>=3.1.6",  # shared with sharar
 ]
 
-[project.optional-dependencies]
-test = ["pytest==8.4.2"]
+[project.scripts]
+sharar-eval = "evals.cli:main"
+
+[dependency-groups]
+dev = ["pytest==8.4.2"]  # uv sync installs it; an install as a dependency does not
 
 [tool.setuptools.packages.find]
 include = ["evals*"]

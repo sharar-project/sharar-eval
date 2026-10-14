@@ -2,8 +2,8 @@
 $XDG_DATA_HOME/sharar or ~/.local/share/sharar), is fetched from a pinned source and checked against
 evals/datasets.sha256.
 
-    python -m evals.datasets fetch     # download what is missing, then check everything
-    python -m evals.datasets check     # check only
+    sharar-eval datasets fetch     # download what is missing, then check everything
+    sharar-eval datasets check     # check only
 """
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ def check(names: list[str] | None = None) -> dict[str, str]:
         if name not in pinned:
             bad.append(f"{name}: not pinned in {PINS.name}")
         elif not path.is_file():
-            bad.append(f"{name}: missing (python -m evals.datasets fetch)")
+            bad.append(f"{name}: missing (sharar-eval datasets fetch)")
         elif sha256(path) != pinned[name]:
             bad.append(f"{name}: sha256 differs from {PINS.name}")
     if bad:
@@ -134,7 +134,7 @@ def fetch() -> None:
     if not all((ROOT / "hard" / f).is_file() for f in ("mmlupro.jsonl", "gpqa_diamond.jsonl", "ifeval.jsonl", "wmt24pp.jsonl")):
         from evals import hard_eval  # needs pyarrow; GPQA is gated (HF_TOKEN)
         hard_eval.fetch()
-    from evals import tbench  # Terminal-Bench needs the harbor venv (requirements-harbor.txt); skipped without it
+    from evals import tbench  # Terminal-Bench needs harbor (uv tool install); skipped without it
     if tbench.HARBOR.is_file() and not (ROOT / tbench.MANIFEST).is_file():
         print("fetch tbench (harbor download)", flush=True)
         tbench.fetch()
@@ -151,7 +151,7 @@ def main() -> int:
         print(f"all {len(check())} pinned files match {PINS.name}")
     else:
         print(__doc__)
-        return 2
+        return 0 if cmd in ("-h", "--help") else 2
     return 0
 
 

@@ -57,7 +57,7 @@ def digest(value):
 
 
 # Acceptance rule pinned on every benchmark request: (top_k, margin), or None to send no
-# acceptance fields (another engine's server). Set from `python -m evals.speed --accept`.
+# acceptance fields (another engine's server). Set from `sharar-eval speed --accept`.
 ACCEPT: tuple[int, float] | None = (1, 0.0)
 
 

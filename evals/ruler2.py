@@ -1,8 +1,8 @@
 """RULER v2 long-context tasks against a running server (sharar#28): three families, four levels each.
 
-    python -m evals.ruler2 prepare --length 32768          # generate the pinned sets (python -m evals.datasets fetch does all)
-    python -m evals.suite run --suite long --label fast --out runs/fast   # 32K and 128K, 10 per task (~3 h)
-    python -m evals.suite run --tasks ruler2-64k --limit 240 --label fast --out runs/fast
+    sharar-eval ruler2 prepare --length 32768          # generate the pinned sets (sharar-eval datasets fetch does all)
+    sharar-eval run --suite long --label fast --out runs/fast   # 32K and 128K, 10 per task (~3 h)
+    sharar-eval run --tasks ruler2-64k --limit 240 --label fast --out runs/fast
 
 RULER v2 (Hsieh et al., NVIDIA, 2025) grades each family from basic retrieval up to reasoning over what
 was retrieved, so a long-context loss shows as "cannot find it" or as "found it, cannot use it":

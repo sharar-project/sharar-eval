@@ -1,6 +1,6 @@
 """Tabulate evals/h2h.py result files side by side (Markdown).
 
-    python -m evals.h2h_report runs/sharar-27b.jsonl runs/sglang27.jsonl ...
+    sharar-eval h2h-report runs/sharar-27b.jsonl runs/sglang27.jsonl ...
 """
 import json
 import statistics
@@ -44,4 +44,7 @@ def main(paths):
 
 
 if __name__ == "__main__":
+    if not sys.argv[1:] or sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(0 if sys.argv[1:] else 2)
     main(sys.argv[1:])
