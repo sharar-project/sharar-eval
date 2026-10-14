@@ -6,3 +6,5 @@ out/
 .venv-evals/
 .venv-harbor/
 .venv-aiperf/
+build/
+*.egg-info/

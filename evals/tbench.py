@@ -48,6 +48,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -64,7 +65,19 @@ from evals.accuracy_eval import SERVER
 from evals.datasets import ROOT
 
 REPO = Path(__file__).resolve().parent.parent
-HARBOR = REPO / ".venv-harbor" / "bin" / "harbor"
+
+
+def _harbor() -> Path:
+    """$SHARAR_HARBOR, else harbor in .venv-harbor (the current directory or this checkout), else on PATH."""
+    if configured := os.environ.get("SHARAR_HARBOR"):
+        return Path(configured).expanduser()
+    for venv in (Path.cwd() / ".venv-harbor", REPO / ".venv-harbor"):
+        if (venv / "bin" / "harbor").is_file():
+            return venv / "bin" / "harbor"
+    return Path(shutil.which("harbor") or ".venv-harbor/bin/harbor")
+
+
+HARBOR = _harbor()
 REGISTRY_NAME = "terminal-bench/terminal-bench-2-1"
 DATASET = ROOT / "tbench" / "terminal-bench-2-1"
 MANIFEST = "tbench/terminal-bench-2-1.sha256"
@@ -92,7 +105,8 @@ def fetch() -> None:
 
 def harbor(args: list[str], log: Path) -> int:
     if not HARBOR.is_file():
-        raise SystemExit(f"{HARBOR} not found: python3 -m venv .venv-harbor && .venv-harbor/bin/pip install -r requirements-harbor.txt")
+        raise SystemExit(f"{HARBOR} not found: python3 -m venv .venv-harbor && .venv-harbor/bin/pip install -r requirements-harbor.txt "
+                         "(or set SHARAR_HARBOR)")
     with log.open("a") as f:
         return subprocess.run([str(HARBOR), "run", "-p", str(DATASET), "--force-build", "-y", "-q", *args],
                               stdout=f, stderr=subprocess.STDOUT).returncode

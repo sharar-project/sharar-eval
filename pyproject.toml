@@ -1,9 +1,32 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "sharar-eval"
 version = "0.1.0"
 description = "Engine-agnostic HTTP evaluations for local inference servers"
-requires-python = ">=3.10"
-dependencies = []  # requirements.txt pins them
+readme = "README.md"
+requires-python = ">=3.11"  # tomllib (evals/tbench.py)
+dependencies = [
+  "sacrebleu==2.4.3",
+  "langdetect==1.0.9",
+  "nltk==3.9.1",
+  "immutabledict==4.2.1",
+  "absl-py==2.1.0",
+  "pyarrow==17.0.0",
+  "tokenizers>=0.22.2",  # shared with sharar: a floor, not a pin
+  "wonderwords==2.2.0",
+  "editdistance==0.8.1",
+  "jinja2>=3.1.6",  # shared with sharar
+]
 
-[tool.setuptools]
-packages = ["evals"]
+[project.optional-dependencies]
+test = ["pytest==8.4.2"]
+
+[tool.setuptools.packages.find]
+include = ["evals*"]
+
+[tool.setuptools.package-data]  # evals/suite.py SHIPPED hashes the same files
+evals = ["datasets.sha256", "workloads/*.json"]
+"evals.speed" = ["data/*"]

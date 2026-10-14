@@ -22,3 +22,22 @@ def test_show_and_compare_read_the_same_shards(tmp_path):
     row = card["tasks"]["gsm8k"]
     assert (row["wins"], row["losses"], row["delta"]) == (2, 0, 50.0)
     assert card["pooled"]["n"] == 4
+
+
+def test_evals_tree_hashes_the_shipped_files(tmp_path, monkeypatch):
+    """The same code gives the same hash wherever it lives; any shipped file changing changes it, and files the
+    package does not ship (caches, notes) do not."""
+    import shutil
+
+    from evals import suite
+    copy = tmp_path / "evals"
+    shutil.copytree(suite.PACKAGE, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    monkeypatch.setattr(suite, "PACKAGE", copy)
+    first = suite.evals_tree()
+    assert first.startswith("sha256:")
+    (copy / "__pycache__").mkdir(exist_ok=True)
+    (copy / "__pycache__" / "x.pyc").write_bytes(b"cache")
+    (copy / "notes.txt").write_text("not shipped")
+    assert suite.evals_tree() == first
+    (copy / "suite.py").write_text((copy / "suite.py").read_text() + "\n# changed\n")
+    assert suite.evals_tree() != first

@@ -32,8 +32,10 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from evals.datasets import ROOT
+
 BUCKETS = {"short": (0, 256, 256), "medium": (256, 1024, 512), "long": (1024, 4096, 512)}
-DEFAULT_DATASET = Path("/results/datasets/ShareGPT_V3_unfiltered_cleaned_split.json")
+DEFAULT_DATASET = ROOT / "ShareGPT_V3_unfiltered_cleaned_split.json"
 
 
 def freeze(dataset: Path, out: Path, per_bucket: int, seed: int) -> dict:
