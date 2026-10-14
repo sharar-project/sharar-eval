@@ -7,7 +7,7 @@ name = "sharar-eval"
 version = "0.1.0"
 description = "Engine-agnostic HTTP evaluations for local inference servers"
 readme = "README.md"
-requires-python = ">=3.11"  # tomllib (evals/tbench.py)
+requires-python = "==3.12.*"  # the tested interpreter, as sharar's: uv installs and uses a 3.12
 dependencies = [
   "sacrebleu==2.4.3",
   "langdetect==1.0.9",
