@@ -3,7 +3,7 @@ sharar/api/chat_template.py and sharar/api/parsers/{reasoning,tools}.py), and th
 
 The benchmarks tokenize and render chat templates on the client so every engine gets identical
 token IDs; they read the pinned Qwen3.8-27B snapshot (tokenizer.json, chat_template.jinja) from the
-Hugging Face cache: --snapshot, else $SHARAR_HF_CACHE, $HF_HUB_CACHE or $HF_HOME/hub.
+Hugging Face cache: --snapshot, else $SHARAR_HF_CACHE, $HF_HUB_CACHE, $HF_HOME/hub or ~/.cache/huggingface/hub.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def snapshot_dir(cache: str | os.PathLike | None = None) -> Path:
     """The pinned snapshot directory in a Hugging Face cache."""
     roots = [cache] if cache else [os.environ.get("SHARAR_HF_CACHE"), os.environ.get("HF_HUB_CACHE"),
                                    os.environ.get("HF_HOME") and Path(os.environ["HF_HOME"]) / "hub",
-                                   "/home/yke/data/huggingface-qwen38-nvfp4-dspark"]
+                                   Path.home() / ".cache" / "huggingface" / "hub"]
     name = "models--" + MODEL_ID.replace("/", "--")
     for root in filter(None, roots):
         for base in (Path(root), Path(root) / "hub"):

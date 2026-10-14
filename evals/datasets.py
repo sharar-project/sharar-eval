@@ -1,6 +1,6 @@
-"""Pinned datasets: every file an eval reads lives under $SHARAR_RESULTS/datasets (default
-/home/yke/sharar-results/datasets), is fetched from a pinned source and checked against
-datasets.sha256 at the repository root.
+"""Pinned datasets: every file an eval reads lives under $SHARAR_RESULTS/datasets (default: sharar's,
+$XDG_DATA_HOME/sharar or ~/.local/share/sharar), is fetched from a pinned source and checked against
+evals/datasets.sha256.
 
     python -m evals.datasets fetch     # download what is missing, then check everything
     python -m evals.datasets check     # check only
@@ -17,7 +17,16 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-ROOT = Path(os.environ.get("SHARAR_RESULTS", "/home/yke/sharar-results")) / "datasets"
+
+
+def results_root() -> Path:
+    """$SHARAR_RESULTS, else sharar's default results directory."""
+    if root := os.environ.get("SHARAR_RESULTS"):
+        return Path(root).expanduser()
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "sharar"
+
+
+ROOT = results_root() / "datasets"
 PINS = Path(__file__).resolve().parent / "datasets.sha256"
 
 GH = "https://raw.githubusercontent.com"

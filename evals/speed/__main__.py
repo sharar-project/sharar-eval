@@ -58,8 +58,8 @@ def load_config():
 
 
 def results_root():
-    state = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state'))
-    return Path(os.environ.get('SHARAR_RESULTS', state / 'sharar/gb10')).expanduser()
+    from evals.datasets import results_root as root
+    return root()
 
 
 def resolve_aiperf(explicit=None):
