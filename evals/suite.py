@@ -81,7 +81,20 @@ def log(msg: str) -> None:
 
 
 def git(*args: str) -> str:
+    """git in this checkout; "" for an installed copy (its site-packages may sit inside another repository)."""
+    if not (REPO / ".git").exists():
+        return ""
     return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True).stdout.strip()
+
+
+def installed_commit() -> str:
+    """The commit an installed copy was built from (pip and uv record it for git installs), else ""."""
+    from importlib import metadata
+    try:
+        url = json.loads(metadata.distribution("sharar-eval").read_text("direct_url.json") or "{}")
+    except metadata.PackageNotFoundError:
+        return ""
+    return url.get("vcs_info", {}).get("commit_id", "")
 
 
 def task_files(name: str) -> list[str]:
@@ -124,7 +137,7 @@ def record(out: Path, args, names: list[str]) -> dict:
     """Create or check run.json: the same server configuration, request settings and evals tree as before."""
     path = out / "run.json"
     current = {"label": args.label, "url": args.url, "model": args.model, "plain": args.plain, "accept": args.accept,
-               "concurrency": args.concurrency, "server": server_info(args.url), "evals_tree": git("rev-parse", "HEAD:evals")}
+               "concurrency": args.concurrency, "server": server_info(args.url), "evals_tree": git("rev-parse", "HEAD:evals") or installed_commit()}
     rec = json.loads(path.read_text()) if path.exists() else {**current, "engine": args.engine, "datasets": {}, "tasks": {}, "runs": []}
     differs = [k for k in current if k not in ("url", "concurrency") and rec.get(k) != current[k]]
     if differs:
@@ -136,7 +149,7 @@ def record(out: Path, args, names: list[str]) -> dict:
         rec["datasets"].update(datasets.check(task_files(name)))
         rec["tasks"][name] = {"max_tokens": task_max_tokens(name), **TASKS[name][2]}
     rec["runs"].append({"suite": args.suite, "tasks": args.tasks, "limit": args.limit or None, "started": dt.datetime.now().isoformat(timespec="seconds"),
-                        "evals_commit": git("rev-parse", "HEAD"), "evals_dirty": bool(git("status", "--porcelain", "--", "evals", "datasets.sha256"))})
+                        "evals_commit": git("rev-parse", "HEAD") or installed_commit(), "evals_dirty": bool(git("status", "--porcelain", "--", "evals"))})
     out.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(rec, indent=1) + "\n")
     return rec

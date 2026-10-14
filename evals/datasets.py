@@ -18,7 +18,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(os.environ.get("SHARAR_RESULTS", "/home/yke/sharar-results")) / "datasets"
-PINS = Path(__file__).resolve().parent.parent / "datasets.sha256"
+PINS = Path(__file__).resolve().parent / "datasets.sha256"
 
 GH = "https://raw.githubusercontent.com"
 URL_NLP = f"{GH}/google-research/url-nlp/452a21ad3dae5668c06ceeac21ff073e1e40f9be/mgsm"

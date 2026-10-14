@@ -1,11 +1,1 @@
-sacrebleu==2.4.3
-langdetect==1.0.9
-nltk==3.9.1
-immutabledict==4.2.1
-absl-py==2.1.0
-pyarrow==17.0.0
-tokenizers==0.22.2
-wonderwords==2.2.0
-editdistance==0.8.1
-jinja2==3.1.6
-pytest==8.4.2
+-e .[test]

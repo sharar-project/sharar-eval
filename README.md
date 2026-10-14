@@ -94,7 +94,7 @@ and has a `compare` subcommand that works on its own result files.
 ## Datasets
 
 Data stays out of git, under `$SHARAR_RESULTS/datasets/` (default `/home/yke/sharar-results/datasets/`).
-`evals/datasets.py` names each file's pinned source, and [datasets.sha256](datasets.sha256) pins
+`evals/datasets.py` names each file's pinned source, and [evals/datasets.sha256](evals/datasets.sha256) pins
 its hash. Every suite run checks the files it reads.
 
 - **MBPP:** the test split is task ids 11-510. The reference solution of one task fails its own asserts.
