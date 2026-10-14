@@ -15,10 +15,10 @@ dependencies = [
   "immutabledict==4.2.1",
   "absl-py==2.1.0",
   "pyarrow==17.0.0",
-  "tokenizers==0.22.2",
+  "tokenizers>=0.22.2",  # shared with sharar: a floor, not a pin
   "wonderwords==2.2.0",
   "editdistance==0.8.1",
-  "jinja2==3.1.6",
+  "jinja2>=3.1.6",  # shared with sharar
 ]
 
 [project.optional-dependencies]
@@ -27,6 +27,6 @@ test = ["pytest==8.4.2"]
 [tool.setuptools.packages.find]
 include = ["evals*"]
 
-[tool.setuptools.package-data]
+[tool.setuptools.package-data]  # evals/suite.py SHIPPED hashes the same files
 evals = ["datasets.sha256", "workloads/*.json"]
 "evals.speed" = ["data/*"]

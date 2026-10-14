@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import math
 import subprocess
@@ -45,6 +46,9 @@ from evals import accuracy_eval, agent_traffic, datasets, hard_eval, ruler2, tbe
 from evals.accuracy_eval import SERVER, mcnemar
 
 REPO = Path(__file__).resolve().parent.parent
+PACKAGE = Path(__file__).resolve().parent
+# What the package ships (pyproject.toml's packages and package-data): the files evals_tree hashes.
+SHIPPED = ("**/*.py", "datasets.sha256", "workloads/*.json", "speed/data/*")
 SHARD = 100
 # task name: (module, module task, loader options)
 TASKS = {
@@ -85,6 +89,16 @@ def git(*args: str) -> str:
     if not (REPO / ".git").exists():
         return ""
     return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True).stdout.strip()
+
+
+def evals_tree() -> str:
+    """sha256 of the shipped evals files (paths and bytes): the same for a checkout and an installed copy of the same
+    code, and different as soon as any of them changes, committed or not."""
+    h = hashlib.sha256()
+    files = sorted({f for pattern in SHIPPED for f in PACKAGE.glob(pattern) if f.is_file() and "__pycache__" not in f.parts})
+    for f in files:
+        h.update(f.relative_to(PACKAGE).as_posix().encode() + b"\0" + hashlib.sha256(f.read_bytes()).digest())
+    return "sha256:" + h.hexdigest()
 
 
 def installed_commit() -> str:
@@ -137,7 +151,7 @@ def record(out: Path, args, names: list[str]) -> dict:
     """Create or check run.json: the same server configuration, request settings and evals tree as before."""
     path = out / "run.json"
     current = {"label": args.label, "url": args.url, "model": args.model, "plain": args.plain, "accept": args.accept,
-               "concurrency": args.concurrency, "server": server_info(args.url), "evals_tree": git("rev-parse", "HEAD:evals") or installed_commit()}
+               "concurrency": args.concurrency, "server": server_info(args.url), "evals_tree": evals_tree()}
     rec = json.loads(path.read_text()) if path.exists() else {**current, "engine": args.engine, "datasets": {}, "tasks": {}, "runs": []}
     differs = [k for k in current if k not in ("url", "concurrency") and rec.get(k) != current[k]]
     if differs:
@@ -149,7 +163,8 @@ def record(out: Path, args, names: list[str]) -> dict:
         rec["datasets"].update(datasets.check(task_files(name)))
         rec["tasks"][name] = {"max_tokens": task_max_tokens(name), **TASKS[name][2]}
     rec["runs"].append({"suite": args.suite, "tasks": args.tasks, "limit": args.limit or None, "started": dt.datetime.now().isoformat(timespec="seconds"),
-                        "evals_commit": git("rev-parse", "HEAD") or installed_commit(), "evals_dirty": bool(git("status", "--porcelain", "--", "evals"))})
+                        "evals_commit": git("rev-parse", "HEAD") or installed_commit(),
+                        "evals_dirty": bool(git("status", "--porcelain", "--", "evals")) if git("rev-parse", "HEAD") else None})
     out.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(rec, indent=1) + "\n")
     return rec
