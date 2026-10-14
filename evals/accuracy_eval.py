@@ -1,10 +1,10 @@
 """Task-accuracy benchmarks against a running server: GSM8K and MGSM (exact match on the final
 number) and HumanEval and MBPP (pass@1, tests executed).
 
-    python3 -m evals.accuracy_eval --task gsm8k --limit 300 --label exact --accept 1:0 --output DIR
-    python3 -m evals.accuracy_eval --task humaneval --label w3 --output DIR
-    python3 -m evals.accuracy_eval --task mgsm --per-language 24 --label fast --accept server --output DIR
-    python3 -m evals.accuracy_eval compare DIR/exact-gsm8k.json DIR/w3-gsm8k.json
+    sharar-eval accuracy --task gsm8k --limit 300 --label exact --accept 1:0 --output DIR
+    sharar-eval accuracy --task humaneval --label w3 --output DIR
+    sharar-eval accuracy --task mgsm --per-language 24 --label fast --accept server --output DIR
+    sharar-eval accuracy compare DIR/exact-gsm8k.json DIR/w3-gsm8k.json
 
 MGSM (multilingual grade-school math, 11 languages x 250, the url-nlp TSVs) asks
 for the reasoning in the question's language; `--per-language N` takes the first

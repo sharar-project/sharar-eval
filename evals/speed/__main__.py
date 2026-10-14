@@ -1,11 +1,11 @@
 """AIPerf speed benchmark for an already running Sharar or SGLang server (formerly `sharar benchmark`).
 
-    python -m evals.speed --url http://127.0.0.1:30004 --workload all
-    python -m evals.speed --url http://127.0.0.1:30000 --accept omit --inputs RUN/frozen-inputs.json --baseline RUN
+    sharar-eval speed --url http://127.0.0.1:30004 --workload all
+    sharar-eval speed --url http://127.0.0.1:30000 --accept omit --inputs RUN/frozen-inputs.json --baseline RUN
 
 Cold prefix, concurrency 1, greedy with ignore_eos, exact acceptance pinned per request by default;
 the frozen 10K-token workloads are tokenized by the server once and saved with every run. Needs AIPerf
-0.12.0 (python3 -m venv .venv-aiperf && .venv-aiperf/bin/pip install aiperf==0.12.0).
+0.12.0 (uv tool install aiperf==0.12.0).
 """
 import datetime as dt
 import json
@@ -71,8 +71,7 @@ def resolve_aiperf(explicit=None):
     for candidate in candidates:
         if found := shutil.which(os.path.expanduser(candidate)):
             return Path(found).resolve()
-    raise ValueError('AIPerf not found. Install it with: python3 -m venv .venv-aiperf && '
-                     f'.venv-aiperf/bin/pip install aiperf=={AIPERF_VERSION}; or set --aiperf PATH')
+    raise ValueError(f'AIPerf not found. Install it with: uv tool install aiperf=={AIPERF_VERSION}; or set --aiperf PATH')
 
 
 def summarize(results):
@@ -220,7 +219,7 @@ def benchmark_cli(args):
 
 def main(argv=None):
     import argparse
-    parser = argparse.ArgumentParser(prog='python -m evals.speed', description=__doc__,
+    parser = argparse.ArgumentParser(prog='sharar-eval speed', description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     add_arguments(parser)
     return benchmark_cli(parser.parse_args(argv))

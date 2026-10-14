@@ -16,8 +16,8 @@ tokens/s over the makespan, TTFT p50/p95, time per output token (TPOT) mean,
 per-request completion p50, generated tokens, and any failures.
 
 Runs inside the runtime image (needs the model tokenizer) with host network:
-  python -m evals.speed.sharegpt --inputs DIR/inputs.json --url http://127.0.0.1:30001 --engine sharar --output DIR
-  python -m evals.speed.sharegpt --freeze DIR/inputs.json   # tokenize + sample once, then reuse
+  sharar-eval sharegpt --inputs DIR/inputs.json --url http://127.0.0.1:30001 --engine sharar --output DIR
+  sharar-eval sharegpt --freeze DIR/inputs.json   # tokenize + sample once, then reuse
 """
 
 from __future__ import annotations

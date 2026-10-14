@@ -1,8 +1,8 @@
 """Record an agent's traffic to a server and check the tool calls in it (sharar#28: tool-call parsing under
 real agents). evals.tbench runs one recording proxy per agent task and adds the check's counts to each item.
 
-    python -m evals.agent_traffic proxy --bind 172.17.0.1 --port 31100 --upstream http://127.0.0.1:30004 --out DIR
-    python -m evals.agent_traffic check DIR [DIR ...] [--show 5]        # DIR is searched recursively
+    sharar-eval agent-traffic proxy --bind 172.17.0.1 --port 31100 --upstream http://127.0.0.1:30004 --out DIR
+    sharar-eval agent-traffic check DIR [DIR ...] [--show 5]        # DIR is searched recursively
 
 - **Proxy.** Every request goes through unchanged and every response streams back unchanged. Each POST is
   kept as <seq>.req.json.gz (the body) and <seq>.resp.gz (the raw response bytes, SSE included), with one

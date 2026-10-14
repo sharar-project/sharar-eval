@@ -1,10 +1,10 @@
 """One command to evaluate a server: a named suite of tasks into one run directory, recorded with
 the versions that produced it, and one paired scorecard between two run directories.
 
-    python -m evals.suite run --url http://127.0.0.1:30004 --label fast --suite quick --out runs/fast
-    python -m evals.suite compare runs/exact runs/fast
-    python -m evals.suite show runs/fast                                                      # one run's scores
-    python -m evals.suite run --label fast --tasks gpqa,mmlupro --limit 50 --out runs/fast   # any tasks, first N items
+    sharar-eval run --url http://127.0.0.1:30004 --label fast --suite quick --out runs/fast
+    sharar-eval compare runs/exact runs/fast
+    sharar-eval show runs/fast                                                      # one run's scores
+    sharar-eval run --label fast --tasks gpqa,mmlupro --limit 50 --out runs/fast   # any tasks, first N items
 
 Suites (Flash-Next on the GB10, 4 streams):
     quick   GSM8K first 300, HumanEval 164, MGSM 24 per language (264), needles at 16K and 64K   ~30 min
@@ -207,7 +207,7 @@ def run_task(out: Path, name: str, limit: int, url: str, accept, concurrency: in
 
 
 def cmd_run(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(prog="evals.suite run")
+    ap = argparse.ArgumentParser(prog="sharar-eval run")
     ap.add_argument("--url", default="http://127.0.0.1:30004")
     ap.add_argument("--label", required=True)
     ap.add_argument("--suite", choices=sorted(SUITES), help="a named suite (default quick, unless --tasks is given)")
@@ -381,7 +381,7 @@ def summary(run: Path) -> dict:
 
 
 def cmd_show(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(prog="evals.suite show")
+    ap = argparse.ArgumentParser(prog="sharar-eval show")
     ap.add_argument("run", type=Path)
     ap.add_argument("--json", type=Path, help="also write the summary as JSON")
     args = ap.parse_args(argv)
@@ -405,7 +405,7 @@ def cmd_show(argv: list[str]) -> int:
 
 
 def cmd_compare(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(prog="evals.suite compare")
+    ap = argparse.ArgumentParser(prog="sharar-eval compare")
     ap.add_argument("base", type=Path)
     ap.add_argument("cand", type=Path)
     ap.add_argument("--json", type=Path, help="also write the scorecard as JSON")

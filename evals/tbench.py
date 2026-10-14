@@ -1,9 +1,9 @@
 """Terminal-Bench 2.1 through Harbor against a running server (sharar#28): agentic tasks in a terminal,
 an agent driving the server, pass/fail per task from each task's tests.
 
-    python -m evals.tbench oracle --out DIR      # once per box: build every task image, run the reference solutions
-    python -m evals.suite run --suite agentic --label fast --out runs/fast        # every valid task, two attempts
-    python -m evals.suite run --tasks tbench-claude-code,tbench-opencode --limit 78 --label fast --out runs/fast
+    sharar-eval tbench oracle --out DIR      # once per box: build every task image, run the reference solutions
+    sharar-eval run --suite agentic --label fast --out runs/fast        # every valid task, two attempts
+    sharar-eval run --tasks tbench-claude-code,tbench-opencode --limit 78 --label fast --out runs/fast
 
 - **Tasks.** Terminal-Bench 2.1 (89 tasks; harbor `terminal-bench/terminal-bench-2-1`, pinned by the
   hash of its file manifest). Version 2.1, not 4.0: 4.0's tasks are tuned for frontier models with
@@ -12,8 +12,7 @@ an agent driving the server, pass/fail per task from each task's tests.
   image from its Dockerfile (`--force-build`; Docker's layer cache makes repeats cheap). `oracle` builds
   them all and runs each task's reference solution. Only tasks the oracle passes here are evaluated;
   they are listed in evals/workloads/tbench_valid.json.
-- **Agents.** Harbor 0.23.0 runs them, in its own venv: `python3 -m venv .venv-harbor &&
-  .venv-harbor/bin/pip install -r requirements-harbor.txt`.
+- **Agents.** Harbor 0.23.0 runs them, installed on its own: `uv tool install harbor==0.23.0`.
   - `tbench`: Terminus-2, model `hosted_vllm/<--model>` at `<url>/v1`. It asks for commands in plain-text JSON,
     so the server's tool-call parser is never used. Requests are greedy (temperature 0) with thinking off, as
     in the other evals. The acceptance rule is the server's own unless `--accept` pins one.
@@ -26,7 +25,7 @@ an agent driving the server, pass/fail per task from each task's tests.
   - Each native-agent task's traffic goes through a recording proxy (evals/agent_traffic.py) on Docker's
     bridge, into <run dir>/<task>/traffic/<item>/. Its tool-call check is in each item (`traffic`): leaks,
     bad JSON, unknown tools, missing parameters, stop reasons and HTTP errors, which should all be 0.
-    `python -m evals.agent_traffic check <run dir>/<task>/traffic --show 5` prints examples.
+    `sharar-eval agent-traffic check <run dir>/<task>/traffic --show 5` prints examples.
 - **Items.** One item per (task, attempt), attempt-major. `--limit 89` is one attempt of every task.
   A task's run lives in <run dir>/<tbench task>/jobs/<task>#<attempt>/, so an interrupted run resumes per task.
 - **Concurrency.** Two tasks at a time at most. Each task container takes up to a few GiB, and
@@ -65,16 +64,19 @@ from evals.accuracy_eval import SERVER
 from evals.datasets import ROOT
 
 REPO = Path(__file__).resolve().parent.parent
+HARBOR_VERSION = "0.23.0"
 
 
 def _harbor() -> Path:
-    """$SHARAR_HARBOR, else harbor in .venv-harbor (the current directory or this checkout), else on PATH."""
+    """$SHARAR_HARBOR, else harbor on PATH (uv tool install), else an older .venv-harbor here or in this checkout."""
     if configured := os.environ.get("SHARAR_HARBOR"):
         return Path(configured).expanduser()
+    if found := shutil.which("harbor"):
+        return Path(found)
     for venv in (Path.cwd() / ".venv-harbor", REPO / ".venv-harbor"):
         if (venv / "bin" / "harbor").is_file():
             return venv / "bin" / "harbor"
-    return Path(shutil.which("harbor") or ".venv-harbor/bin/harbor")
+    return Path("harbor")
 
 
 HARBOR = _harbor()
@@ -105,8 +107,7 @@ def fetch() -> None:
 
 def harbor(args: list[str], log: Path) -> int:
     if not HARBOR.is_file():
-        raise SystemExit(f"{HARBOR} not found: python3 -m venv .venv-harbor && .venv-harbor/bin/pip install -r requirements-harbor.txt "
-                         "(or set SHARAR_HARBOR)")
+        raise SystemExit(f"harbor not found: uv tool install harbor=={HARBOR_VERSION} (or set SHARAR_HARBOR)")
     with log.open("a") as f:
         return subprocess.run([str(HARBOR), "run", "-p", str(DATASET), "--force-build", "-y", "-q", *args],
                               stdout=f, stderr=subprocess.STDOUT).returncode
@@ -153,7 +154,7 @@ def oracle(out: Path, concurrency: int) -> None:
 
 def load(task: str) -> list[dict]:
     if not VALID.is_file():
-        raise SystemExit(f"{VALID} missing: run `python -m evals.tbench oracle --out DIR` once on this box")
+        raise SystemExit(f"{VALID} missing: run `sharar-eval tbench oracle --out DIR` once on this box")
     valid = json.loads(VALID.read_text())["valid"]
     return [{"id": f"{t}#{a}", "task": t, "attempt": a, "group": category(t)} for a in range(ATTEMPTS) for t in valid]
 

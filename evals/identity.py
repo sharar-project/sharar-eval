@@ -5,8 +5,8 @@ Runs the h2h decode prompts (thinking off and on) greedily with exact acceptance
 the full text per prompt; `compare` reports identical prompts and the first
 differing character.
 
-    python -m evals.identity run --url http://127.0.0.1:30004 --out a.json
-    python -m evals.identity compare a.json b.json
+    sharar-eval identity run --url http://127.0.0.1:30004 --out a.json
+    sharar-eval identity compare a.json b.json
 """
 import argparse
 import json

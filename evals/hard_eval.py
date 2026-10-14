@@ -4,8 +4,8 @@ ten languages, chrF++). GSM8K and HumanEval sit at 93-95% for these models, so a
 thousands of items; these tasks sit lower, test knowledge, chat and multilingual generation, where
 lossy weight changes move the distribution most, and give more discordant pairs per item.
 
-    python -m evals.hard_eval --task mmlupro --label fast --output DIR
-    python -m evals.hard_eval compare DIR/exact-mmlupro.json DIR/fast-mmlupro.json
+    sharar-eval hard --task mmlupro --label fast --output DIR
+    sharar-eval hard compare DIR/exact-mmlupro.json DIR/fast-mmlupro.json
 
 Requests and sampling follow `evals.accuracy_eval` (greedy, thinking disabled, identical prompts in
 every arm, `--accept` as there; the default here is `server`, the arm's profile decides). MMLU-Pro
@@ -16,7 +16,7 @@ instruction_following_eval, Apache-2.0); WMT24++ takes the first `--per-language
 (default 100) of each language and scores sentence chrF++ (sacrebleu). Binary tasks compare paired with
 McNemar, WMT24++ with a paired bootstrap of the mean chrF++ and a sign test.
 
-Datasets: `python -m evals.datasets fetch` (GPQA is gated: HF_TOKEN).
+Datasets: `sharar-eval datasets fetch` (GPQA is gated: HF_TOKEN).
 """
 from __future__ import annotations
 

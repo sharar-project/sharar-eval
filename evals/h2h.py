@@ -10,8 +10,8 @@ Workloads (evals/workloads/h2h_v1.json):
   conc    N streams over a prompt list; aggregate completion tokens / wall time
   probes  the public SGLang 27B figure's four probes, verbatim (engine-default template)
 
-    python -m evals.h2h --url http://127.0.0.1:30001 --engine sharar-27b --out runs/sharar-27b.jsonl
-    python -m evals.h2h --url ... --engine sglang-27b --api-key KEY --workloads decode --modes greedy
+    sharar-eval h2h --url http://127.0.0.1:30001 --engine sharar-27b --out runs/sharar-27b.jsonl
+    sharar-eval h2h --url ... --engine sglang-27b --api-key KEY --workloads decode --modes greedy
 """
 import argparse
 import json
