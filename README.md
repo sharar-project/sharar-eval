@@ -121,7 +121,7 @@ the client from the pinned tokenizer, so every engine receives identical token I
 | `hard` | MMLU-Pro, GPQA Diamond, IFEval (reference checker vendored in `evals/ifeval/`), WMT24++ |
 | `ruler2` | RULER v2 (NVIDIA, 2025): multi-key and multi-value needles and HotpotQA documents, each from basic retrieval to reasoning over what was retrieved (4 levels), at 32K/64K/128K. Ported from NeMo-Skills; `compare --detail` shows each of the 12 tasks |
 | `long-context` | Needle retrieval and prefill/decode rates at 10K-262K |
-| `h2h`, `h2h-report` | Head-to-head serving benchmark: public probes, 22 decode prompts (greedy, t=0.7, t=1.0), long-context TTFT and needles, four-stream aggregate (`evals/workloads/h2h_v1.json`) |
+| `h2h`, `h2h-report` | Head-to-head serving benchmark: public probes, 22 decode prompts (greedy, t=0.7, t=1.0), long-context TTFT and needles, four-stream aggregate (`evals/workloads/h2h_v1.json`). `--streams 4,8,...,128` makes `conc` a closed-loop sweep: per N, N streams each send their next request as one ends (the 22 prompts in turn by category, numbered so none share a prefix), tokens counted in a window after a warm-up (`--warmup-s`, `--duration-s`), so the server holds N requests throughout |
 | `identity` | Exact greedy output identity between two servers: `run` against each, then `compare` |
 | `tts` | Test-time scaling on MATH-500: greedy against self-consistency with n choices |
 | `agent-traffic` | A recording proxy for agent traffic and a tool-call check of what it recorded: leaked tool-call markup, bad JSON arguments, unknown tools, missing parameters, wrong stop reasons, HTTP errors |

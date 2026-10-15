@@ -30,6 +30,12 @@ def main(paths):
                 for cat in sorted({r["cat"] for r in m}):
                     table[f"decode {mode}, {cat}"][e] = med(r["tps"] for r in m if r["cat"] == cat)
                 table[f"ttft {mode} (s)"][e] = round(statistics.median(r["ttft_s"] for r in m), 3)
+        streams = defaultdict(list)
+        for r in rs:
+            if r["workload"] == "streams":
+                streams[(r["streams"], r["mode"], r["thinking"])].append(r["aggregate_tps"])
+        for (n, mode, thinking), v in sorted(streams.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+            table[f"{n} streams {mode}{', thinking' if thinking else ''}, aggregate tok/s"][e] = round(statistics.mean(v), 1)
         for r in rs:
             if r["workload"] == "conc":
                 table[f"conc {r['streams']} streams {r['mode']}, aggregate tok/s"][e] = r["aggregate_tps"]
