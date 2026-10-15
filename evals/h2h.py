@@ -7,11 +7,15 @@ Workloads (evals/workloads/h2h_v1.json):
           tokens included, time to first token reported apart
   long    cold time to first token at each length (a needle, unique text per
           length), then a warm follow-up on the same context
-  conc    N streams over a prompt list; aggregate completion tokens / wall time
+  conc    N streams over a prompt list; aggregate completion tokens / wall time. With --streams N1,N2,...: a
+          closed loop per N (each stream sends its next request when the last ends, the 22 prompts in turn by
+          category, numbered so none share a prefix); tokens counted in a window after a warm-up, so the server holds
+          N requests throughout (no shrinking tail)
   probes  the public SGLang 27B figure's four probes, verbatim (engine-default template)
 
     sharar-eval h2h --url http://127.0.0.1:30001 --engine sharar-27b --out runs/sharar-27b.jsonl
     sharar-eval h2h --url ... --engine sglang-27b --api-key KEY --workloads decode --modes greedy
+    sharar-eval h2h --url ... --engine sharar-fn --workloads conc --streams 8,16,32,64,128 --modes greedy,t07
 """
 import argparse
 import json
@@ -54,7 +58,8 @@ def stream(url, body, key=None, timeout=3600):
                     chunks += 1
                 finish = choice.get("finish_reason") or finish
     n = (usage or {}).get("completion_tokens") or chunks
-    return {"ttft_s": round((first or time.monotonic()) - start, 4), "span_s": round((last or 0) - (first or 0), 4),
+    return {"t_first": first, "t_last": last,
+            "ttft_s": round((first or time.monotonic()) - start, 4), "span_s": round((last or 0) - (first or 0), 4),
             "completion_tokens": n, "tps": round((n - 1) / (last - first), 2) if first and last and last > first and n > 1 else None,
             "finish": finish, "text": "".join(text)}
 
@@ -75,7 +80,7 @@ def run_decode(args, spec, out):
                 for p in prompts:
                     r = stream(args.url, body(args, spec, p["prompt"], mode, thinking), args.api_key)
                     row = {"engine": args.engine, "workload": "decode", "id": p["id"], "cat": p["cat"], "mode": mode,
-                           "thinking": thinking, "rep": rep, **{k: v for k, v in r.items() if k != "text"}, "head": r["text"][:120]}
+                           "thinking": thinking, "rep": rep, **{k: v for k, v in r.items() if k not in ("text", "t_first", "t_last")}, "head": r["text"][:120]}
                     out(row)
 
 
@@ -107,7 +112,68 @@ def run_long(args, spec, out):
              "answer": cold["text"].strip()[:40], "warm_ttft_s": warm["ttft_s"], "prefill_tps": round(n / cold["ttft_s"], 1)})
 
 
+def interleaved(prompts):
+    """The prompts in turn by category (chat, code, math, ...), so any run of consecutive requests mixes them."""
+    by_cat = {}
+    for p in prompts:
+        by_cat.setdefault(p["cat"], []).append(p)
+    queues = [by_cat[c] for c in sorted(by_cat)]
+    order = []
+    while any(queues):
+        for q in queues:
+            if q:
+                order.append(q.pop(0))
+    return order
+
+
+def window_tokens(r, w0, w1):
+    """A request's completion tokens inside [w0, w1], spread evenly between its first and last streamed token."""
+    first, last, n = r.get("t_first"), r.get("t_last"), r.get("completion_tokens") or 0
+    if first is None or last is None or n <= 0:
+        return 0.0
+    if last <= first:
+        return float(n) if w0 <= first <= w1 else 0.0
+    overlap = max(0.0, min(last, w1) - max(first, w0))
+    return n * overlap / (last - first)
+
+
+def run_streams(args, spec, out):
+    """Closed-loop concurrency sweep: for each N, N streams each send their next request as soon as the last one ends
+    (the prompts in turn by category, each opened with a request number so none share a prefix), so the server holds
+    N requests. After --warmup-s, tokens are counted for --duration-s (each request's tokens spread over its first to
+    last streamed token); streams stop sending at the window's end and the requests in flight finish uncounted past it."""
+    prompts = interleaved([p for p in spec["decode"] if not args.only or any(p["id"].startswith(o) or p["cat"] == o for o in args.only)])
+    for mode in args.modes:
+        for thinking in args.thinking:
+            for n in args.streams:
+                counter, lock, results = iter(range(10 ** 9)), threading.Lock(), []
+                t0 = time.monotonic()
+                w0, w1 = t0 + args.warmup_s, t0 + args.warmup_s + args.duration_s
+
+                def worker():
+                    while time.monotonic() < w1:
+                        with lock:
+                            i = next(counter)
+                        p = prompts[i % len(prompts)]
+                        r = stream(args.url, body(args, spec, f"(Request {i}) " + p["prompt"], mode, thinking), args.api_key)
+                        with lock:
+                            results.append({**r, "cat": p["cat"]})
+                threads = [threading.Thread(target=worker) for _ in range(n)]
+                [t.start() for t in threads]
+                [t.join() for t in threads]
+                toks = sum(window_tokens(r, w0, w1) for r in results)
+                inside = [r for r in results if r.get("t_first") and r["t_first"] >= w0 and r["t_last"] <= w1]
+                out({"engine": args.engine, "workload": "streams", "streams": n, "mode": mode, "thinking": thinking,
+                     "window_s": args.duration_s, "warmup_s": args.warmup_s, "requests": len(results),
+                     "tokens": round(toks, 1), "aggregate_tps": round(toks / args.duration_s, 2),
+                     "median_stream_tps": statistics.median([r["tps"] for r in results if r["tps"]]) if any(r["tps"] for r in results) else None,
+                     "median_ttft_s": statistics.median([r["ttft_s"] for r in results]) if results else None,
+                     "requests_inside_window": len(inside)})
+
+
 def run_conc(args, spec, out):
+    if args.streams:
+        return run_streams(args, spec, out)
     c = spec["concurrency"]
     by_id = {p["id"]: p for p in spec["decode"]}
     for mode in args.modes:
@@ -143,7 +209,7 @@ def run_probes(args, spec, out):
                  "temperature": p["temperature"], **args.extra}
             r = stream(args.url, b, args.api_key)
             out({"engine": args.engine, "workload": "probes", "id": p["id"], "rep": rep, "median": p["median"],
-                 **{k: v for k, v in r.items() if k != "text"}, "head": r["text"][:120]})
+                 **{k: v for k, v in r.items() if k not in ("text", "t_first", "t_last")}, "head": r["text"][:120]})
     tps = [r["tps"] for r in _rows if r.get("workload") == "probes" and r.get("median") and r.get("tps")]
     if tps:
         print(f"probes greedy median {statistics.median(tps):.1f} tok/s over {len(tps)} runs", flush=True)
@@ -182,11 +248,15 @@ def main():
     ap.add_argument("--max-context", type=int, default=None)
     ap.add_argument("--tokenizer", default=None)
     ap.add_argument("--corpus", default=None)
+    ap.add_argument("--streams", default=None, help="conc as a closed-loop sweep over these stream counts (e.g. 4,8,16,32,64,128); default: the workload's 4 streams over its 8 prompts")
+    ap.add_argument("--warmup-s", type=float, default=30.0, help="--streams: seconds before the counted window")
+    ap.add_argument("--duration-s", type=float, default=60.0, help="--streams: the counted window, seconds")
     args = ap.parse_args()
     args.url = args.url.rstrip("/")
     args.modes = args.modes.split(",")
     args.thinking = [t == "on" for t in args.thinking.split(",")]
     args.only = args.only.split(",") if args.only else None
+    args.streams = [int(v) for v in args.streams.split(",")] if args.streams else None
     args.extra = json.loads(args.extra)
     spec = json.loads(SPEC.read_text())
     rows = _rows
