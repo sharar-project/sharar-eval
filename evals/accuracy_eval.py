@@ -91,7 +91,9 @@ def ask(url: str, content: str, max_tokens: int, accept: tuple[int, float]) -> t
             body.update(accept_top_k=accept[0], accept_margin=accept[1])
     if body["temperature"] > 0:
         body["seed"] = zlib.crc32(content.encode(), THINKING["seed"])  # the same seed per item in every arm; --seed 0 as before
-    out = post(url, body, timeout=max(900, max_tokens / 10))  # a long cap (run --max-tokens): 10 tokens a second at the least
+    # a long cap (run --max-tokens): 2 tokens a second at the least. A 64K-token thinking answer at 16 streams on
+    # Flash-Next exact decodes at ~10 a second, slower when retracted, and outlasted the 10-a-second budget (1.8 h).
+    out = post(url, body, timeout=max(900, max_tokens / 2))
     choice, usage = out["choices"][0], dict(out.get("usage") or {})
     text, reasoning = choice["message"].get("content") or "", choice["message"].get("reasoning_content") or ""
     if "</think>" in text:  # a server without a reasoning parser: the thinking arrives in the content

@@ -20,8 +20,9 @@ takes the first N items of each; both work with `--suite` too. tbench-claude-cod
 native-tool agents, which checks the server's tool calls (evals/tbench.py). A limited run is a prefix of the full one, so a later longer run only adds the rest.
 
 A run directory holds one server configuration. Each task runs in shards of 100 items
-(<task>/s00000.json, ...), so an interrupted run resumes where it stopped and `full` reuses
-the GSM8K shards `quick` wrote. run.json records the label, the server's /get_server_info,
+(<task>/s00000.json, ...); a shard is rewritten as its items complete (the completed ones from
+its first), so an interrupted run resumes where it stopped and `full` reuses the GSM8K shards
+`quick` wrote. A failed request is retried once without stopping the others. run.json records the label, the server's /get_server_info,
 the engine version given with --engine, this repository's commit, the sha256 of every dataset
 file read and each task's token cap; a later `run` into the same directory must match it.
 `--max-tokens N` replaces every task's cap for the run (GPQA's default is 8,192, MMLU-Pro's and IFEval's 4,096);
@@ -48,6 +49,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 from evals import accuracy_eval, agent_traffic, datasets, hard_eval, ruler2, tbench
@@ -201,23 +203,69 @@ def run_needles(out: Path, url: str) -> None:
     tmp.rename(done)
 
 
+def save_shard(path: Path, name: str, start: int, items: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.with_suffix(".partial").write_text(json.dumps({"task": name, "start": start, "items": items}, ensure_ascii=False))
+    path.with_suffix(".partial").rename(path)
+
+
+def run_items(out: Path, name: str, url: str, items: list[dict], first: int, accept, concurrency: int, max_tokens: int,
+              save) -> list[dict]:
+    """Each item its own request, `concurrency` at a time, in order. Whenever the completed items from the first grow,
+    save(those rows) records them, so an interrupted shard resumes after them, not from its start (thinking answers
+    run for hours). A failed item is retried once and does not stop the others; a second failure is raised once they
+    are done, after its predecessors are saved."""
+    done: dict[int, dict] = {}
+    prefix: list[dict] = []
+    failure = None
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        def submit(k):
+            return pool.submit(run_shard, out, name, url, [items[k]], accept, 1, max_tokens)
+        pending = {submit(k): (k, 0) for k in range(len(items))}
+        while pending:
+            finished, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for fut in finished:
+                k, tries = pending.pop(fut)
+                try:
+                    row = fut.result()[0]
+                except Exception as exc:  # a timeout or a dropped connection: once more, then give up on it
+                    log(f"{name} item {first + k} failed ({'retrying' if not tries else 'giving up'}): {exc!r}")
+                    if not tries:
+                        pending[submit(k)] = (k, 1)
+                    else:
+                        failure = failure or exc
+                    continue
+                done[k] = {**row, "index": first + k}
+            grew = False
+            while len(prefix) in done:
+                prefix.append(done.pop(len(prefix)))
+                grew = True
+            if grew:
+                save(prefix)
+    if failure is not None:
+        raise failure
+    return prefix
+
+
 def run_task(out: Path, name: str, limit: int, url: str, accept, concurrency: int, max_tokens: int = 0) -> None:
     items = task_items(name)
     total = min(limit, len(items)) if limit else len(items)
     for start in range(0, total, SHARD):
         path = out / name / f"s{start:05d}.json"
-        have = json.loads(path.read_text())["items"] if path.exists() else []  # a shorter --limit may have filled part of it
+        have = json.loads(path.read_text())["items"] if path.exists() else []  # a shorter --limit or a stopped run filled part of it
         first = start + len(have)
         want = items[first:min(start + SHARD, total)]
         if not want:
             continue
         t0 = time.monotonic()
-        rows = run_shard(out, name, url, want, accept, concurrency, max_tokens)
-        for r in rows:
-            r["index"] += first
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.with_suffix(".partial").write_text(json.dumps({"task": name, "start": start, "items": have + rows}, ensure_ascii=False))
-        path.with_suffix(".partial").rename(path)
+        if getattr(TASKS[name][0], "WORKDIR", False):  # tbench: harbor runs the shard's tasks as one job
+            rows = run_shard(out, name, url, want, accept, concurrency, max_tokens)
+            for r in rows:
+                r["index"] += first
+            save_shard(path, name, start, have + rows)
+        else:
+            rows = run_items(out, name, url, want, first, accept, concurrency, max_tokens,
+                             lambda prefix: save_shard(path, name, start, have + prefix))
         key = "score" if "score" in rows[0] else "correct"
         mean = sum(float(r[key]) for r in rows) / len(rows)
         log(f"{name} {first}-{first + len(rows) - 1} of {len(items)}: {mean * (1 if key == 'score' else 100):.1f}"

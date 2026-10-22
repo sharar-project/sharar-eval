@@ -138,3 +138,42 @@ def test_show_means_repeats(tmp_path, capsys):
     assert (rows["gpqa"]["scores"], rows["gpqa"]["mean"], round(rows["gpqa"]["sd"], 2)) == ([50.0, 75.0], 62.5, 17.68)
     assert suite.cmd_show([str(tmp_path / "s0"), str(tmp_path / "s1")]) == 0
     assert "| gpqa | 4 | 50.0% | 75.0% | 62.5% | 17.7 |" in capsys.readouterr().out
+
+
+def test_a_shard_is_saved_as_its_items_complete(tmp_path, monkeypatch):
+    """Items run one request each; the completed ones from the shard's start are saved whenever they grow, a failure is
+    retried once without stopping the others, and a stopped shard resumes after what it saved."""
+    import threading
+    gate, calls = threading.Event(), {}
+    monkeypatch.setattr(suite, "task_items", lambda name: [{"id": f"q{i}"} for i in range(5)])
+
+    def fake_shard(out, name, url, items, accept, concurrency, max_tokens):
+        assert len(items) == 1 and concurrency == 1
+        i = int(items[0]["id"][1:])
+        calls[i] = calls.get(i, 0) + 1
+        if i == 0:
+            gate.wait(5)  # the first item finishes last
+        if i == 2 and calls[i] == 1:
+            raise TimeoutError("timed out")  # retried
+        if i == 3:
+            raise TimeoutError("always")  # fails twice: raised at the end
+        return [{"index": 0, "id": items[0]["id"], "correct": True, "completion_tokens": 1}]
+    monkeypatch.setattr(suite, "run_shard", fake_shard)
+    saved = []
+    real_save = suite.save_shard
+    monkeypatch.setattr(suite, "save_shard", lambda *a: (saved.append([x["id"] for x in a[3]]), real_save(*a)))
+    threading.Timer(0.3, gate.set).start()
+    with pytest.raises(TimeoutError, match="always"):
+        suite.run_task(tmp_path, "gsm8k", 0, "u", None, 4, 0)
+    assert calls[2] == 2 and calls[3] == 2
+    assert saved == [["q0", "q1", "q2"]]  # nothing before q0 completed; q3 never did
+    shard = json.loads((tmp_path / "gsm8k" / "s00000.json").read_text())
+    assert [x["index"] for x in shard["items"]] == [0, 1, 2]
+
+    calls.clear()
+    monkeypatch.setattr(suite, "run_shard", lambda out, name, url, items, *a: (
+        calls.setdefault(items[0]["id"], 1), [{"index": 0, "id": items[0]["id"], "correct": False, "completion_tokens": 1}])[1])
+    suite.run_task(tmp_path, "gsm8k", 0, "u", None, 4, 0)  # resumes at q3
+    assert sorted(calls) == ["q3", "q4"]
+    shard = json.loads((tmp_path / "gsm8k" / "s00000.json").read_text())
+    assert [x["index"] for x in shard["items"]] == [0, 1, 2, 3, 4] and [x["id"] for x in shard["items"]] == ["q0", "q1", "q2", "q3", "q4"]
