@@ -7,8 +7,9 @@ lossy weight changes move the distribution most, and give more discordant pairs 
     sharar-eval hard --task mmlupro --label fast --output DIR
     sharar-eval hard compare DIR/exact-mmlupro.json DIR/fast-mmlupro.json
 
-Requests and sampling follow `evals.accuracy_eval` (greedy, thinking disabled, identical prompts in
-every arm, `--accept` as there; the default here is `server`, the arm's profile decides). MMLU-Pro
+Requests and sampling follow `evals.accuracy_eval` (greedy, thinking disabled unless `--thinking`, identical
+prompts in every arm, `--accept` as there; the default here is `server`, the arm's profile decides). With thinking
+on, only the reply after the thinking is graded; a reply capped inside its thinking scores as wrong. MMLU-Pro
 takes the first `--per-category` items (default 100, 1,400 in all) of each of its 14 categories in
 question-id order; GPQA shuffles each question's options with a seed from its text, the same in every
 arm; IFEval is graded strict per prompt with the reference checker (evals/ifeval, google-research
@@ -36,7 +37,7 @@ import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from evals.accuracy_eval import SAMPLING, SERVER, ask, mcnemar
+from evals.accuracy_eval import SERVER, add_request_args, apply_request_args, ask, mcnemar, request_mode
 from evals.datasets import ROOT, download as fetch_url
 
 DATA = ROOT / "hard"
@@ -185,9 +186,10 @@ def run(task: str, url: str, items: list[dict], accept, max_tokens: int, concurr
                               max_tokens, accept)
             hyp = text.strip()
             row = {"score": sacrebleu.sentence_chrf(hyp, [it["target"]], word_order=2).score, "hyp": hyp[:400]}
+        thinking = {k: usage[k] for k in ("reasoning_tokens", "reasoning_tail") if usage.get(k)}
         return {"index": i, "id": it["id"], "group": it["group"], **row, "seconds": time.perf_counter() - t0,
                 "completion_tokens": usage.get("completion_tokens"), "relaxed_tokens": usage.get("relaxed_tokens"),
-                "capped": (usage.get("completion_tokens") or 0) >= max_tokens}
+                "capped": (usage.get("completion_tokens") or 0) >= max_tokens, **thinking}
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         return list(pool.map(lambda p: one(*p), enumerate(items)))
@@ -274,8 +276,10 @@ def main() -> int:
     ap.add_argument("--output", type=Path, required=True)
     ap.add_argument("--model", default="sharar")
     ap.add_argument("--plain", action="store_true", help="another OpenAI-compatible server: no accept/trace fields, no /get_server_info")
+    add_request_args(ap)
     args = ap.parse_args()
     SERVER.update(model=args.model, plain=args.plain)
+    apply_request_args(ap, args)
     accept = None if args.accept == "server" else (int(args.accept.split(":")[0]), float(args.accept.split(":")[1]))
     items = load(args.task, args.per_category, args.per_language)
     if args.limit:
@@ -290,7 +294,7 @@ def main() -> int:
             info = json.loads(r.read())
     key = "score" if args.task == "wmt" else "correct"
     score = sum(float(r[key]) for r in result_rows) / len(result_rows)
-    result = {"label": args.label, "task": args.task, "accept": accept if accept is not None else "server", "sampling": dict(SAMPLING),
+    result = {"label": args.label, "task": args.task, "accept": accept if accept is not None else "server", "sampling": request_mode(),
               "n": len(result_rows), "score": score, "wall_seconds": wall, "max_tokens": max_tokens,
               "source": {"repo": SOURCES[args.task][0], "revision": SOURCES[args.task][1]},
               "server": {k: info.get(k) for k in ("target", "revision", "w3_target_identity", "w3_warning", "speculative")},

@@ -27,6 +27,12 @@ file read and each task's token cap; a later `run` into the same directory must 
 `--max-tokens N` replaces every task's cap for the run (GPQA's default is 8,192, MMLU-Pro's and IFEval's 4,096);
 a capped answer scores as wrong, so a model that reasons longer loses items to the cap, not to its answers.
 
+Requests are greedy with thinking off unless the run asks otherwise, for every task but the needles and
+Terminal-Bench (their own requests): `--thinking` (with `--reasoning-effort`, the template's xhigh by default;
+it needs `--max-tokens`), `--temperature T` (top_p 0.95, top_k 20, one seed per item) and `--seed S` (another
+set of seeds: a repeat of a sampled run goes in its own directory). run.json records them as "request".
+`show` with several run directories (seeds) prints each one's scores and their mean.
+
 `compare` pairs the two runs item by item on every task both have (on the items both have):
 binary tasks with McNemar and a normal interval of the paired difference, WMT24++ (chrF++) and
 RULER v2 (0-100 per item) with a paired bootstrap, needles as counts. Pooled is all binary tasks together.
@@ -45,7 +51,7 @@ import urllib.request
 from pathlib import Path
 
 from evals import accuracy_eval, agent_traffic, datasets, hard_eval, ruler2, tbench
-from evals.accuracy_eval import SERVER, mcnemar
+from evals.accuracy_eval import SERVER, add_request_args, apply_request_args, mcnemar, request_mode
 
 REPO = Path(__file__).resolve().parent.parent
 PACKAGE = Path(__file__).resolve().parent
@@ -79,6 +85,10 @@ SUITES = {  # suite: [(task, first N items; 0 = all)]
     "all": FULL + HARD + [("ruler2-32k", 120), ("ruler2-128k", 120), ("needles", 0)],
 }
 # /get_server_info fields that identify a configuration (not its counters)
+# run.json's "request" before it was recorded: every run was greedy with thinking off
+GREEDY = {"temperature": 0.0, "thinking": False, "reasoning_effort": None, "seed": 0}
+# tasks that build their own requests, without the run's sampling and thinking
+OWN_REQUESTS = {"needles", *tbench.AGENTS}
 SERVER_KEYS = ("engine", "target", "model_path", "revision", "w3_target_identity", "context_length", "max_running_requests",
                "speculative", "attention_backend", "gdn_backend", "kv_cache_dtype", "mamba_ssm_dtype", "config")
 
@@ -155,8 +165,9 @@ def record(out: Path, args, names: list[str]) -> dict:
     """Create or check run.json: the same server configuration, request settings and evals tree as before."""
     path = out / "run.json"
     current = {"label": args.label, "url": args.url, "model": args.model, "plain": args.plain, "accept": args.accept,
-               "concurrency": args.concurrency, "server": server_info(args.url), "evals_tree": evals_tree()}
+               "concurrency": args.concurrency, "server": server_info(args.url), "evals_tree": evals_tree(), "request": request_mode()}
     rec = json.loads(path.read_text()) if path.exists() else {**current, "engine": args.engine, "datasets": {}, "tasks": {}, "runs": []}
+    rec.setdefault("request", GREEDY)
     differs = [k for k in current if k not in ("url", "concurrency") and rec.get(k) != current[k]]
     if differs:
         raise SystemExit(f"{out}: {', '.join(differs)} differ from the run recorded there; use another --out")
@@ -229,9 +240,13 @@ def cmd_run(argv: list[str]) -> int:
     ap.add_argument("--skip", action="append", default=[], choices=sorted(TASKS), help="leave this task out (repeatable)")
     ap.add_argument("--model", default="sharar")
     ap.add_argument("--plain", action="store_true", help="another OpenAI-compatible server: no Sharar-only request fields, no /get_server_info")
+    add_request_args(ap)
     args = ap.parse_args(argv)
     args.url = args.url.rstrip("/")
     SERVER.update(model=args.model, plain=args.plain)
+    apply_request_args(ap, args)
+    if args.thinking and not args.max_tokens:
+        ap.error("--thinking needs --max-tokens: the task defaults (GPQA 8,192, the rest 4,096) cut thinking off")
     accept = None if args.accept == "server" else (int(args.accept.split(":")[0]), float(args.accept.split(":")[1]))
     skip = set(args.skip) | ({"needles"} if args.plain else set())  # the needles send Sharar request fields
     if args.tasks:
@@ -245,6 +260,8 @@ def cmd_run(argv: list[str]) -> int:
     plan = [(n, min(k, args.limit) if k and args.limit else k or args.limit) for n, k in base if n not in skip]
     if not plan:
         ap.error("nothing to run")
+    if request_mode() != GREEDY and (own := sorted({n for n, _ in plan} & OWN_REQUESTS)):
+        ap.error(f"{', '.join(own)} send their own requests (greedy, thinking off): --skip them or run them separately")
     record(args.out, args, [n for n, _ in plan])
     t0 = time.monotonic()
     for name, limit in plan:
@@ -389,12 +406,43 @@ def summary(run: Path) -> dict:
     return out
 
 
+def mean_of(cards: list[dict]) -> dict:
+    """Repeats of one configuration (sampled runs, one seed each): each task's score in every run, and their mean
+    and sample standard deviation, over the tasks every run has, on as many items as each run has done."""
+    out = {}
+    for name in cards[0]["tasks"]:
+        rows = [c["tasks"].get(name) for c in cards]
+        if any(r is None or r["kind"] == "needles" for r in rows):
+            continue
+        scores = [r["score"] for r in rows]
+        mean = sum(scores) / len(scores)
+        sd = math.sqrt(sum((x - mean) ** 2 for x in scores) / (len(scores) - 1))
+        out[name] = {"kind": rows[0]["kind"], "n": [r["n"] for r in rows], "scores": scores, "mean": mean, "sd": sd,
+                     "capped": [r["capped"] for r in rows], "tokens_per_item": sum(r["tokens_per_item"] for r in rows) / len(rows)}
+    return out
+
+
 def cmd_show(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="sharar-eval show")
-    ap.add_argument("run", type=Path)
+    ap.add_argument("run", type=Path, nargs="+", help="a run directory, or several repeats of one configuration (their mean)")
     ap.add_argument("--json", type=Path, help="also write the summary as JSON")
     args = ap.parse_args(argv)
-    card = summary(args.run)
+    if len(args.run) > 1:
+        cards = [summary(r) for r in args.run]
+        rows = mean_of(cards)
+        print(f"{len(cards)} runs: {', '.join(c['label'] for c in cards)}\n")
+        print("| task | n | " + " | ".join(c["label"] for c in cards) + " | mean | sd | tokens/item | capped |")
+        print("|---|---:|" + "---:|" * (len(cards) + 4))
+        for name, r in rows.items():
+            unit = "%" if r["kind"] == "binary" else ""
+            n = str(r["n"][0]) if len(set(r["n"])) == 1 else "/".join(map(str, r["n"]))
+            capped = "" if r["capped"][0] is None else "/".join(map(str, r["capped"]))
+            print(f"| {name} | {n} | " + " | ".join(f"{x:.1f}{unit}" for x in r["scores"])
+                  + f" | {r['mean']:.1f}{unit} | {r['sd']:.1f} | {r['tokens_per_item']:.0f} | {capped} |")
+        if args.json:
+            args.json.write_text(json.dumps({"runs": cards, "mean": rows}, indent=1) + "\n")
+        return 0
+    card = summary(args.run[0])
     print(f"{card['label']} ({card['engine'] or 'engine not recorded'})\n")
     print("| task | n | score | tokens/item | capped |")
     print("|---|---:|---:|---:|---:|")

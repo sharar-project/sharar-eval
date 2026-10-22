@@ -1,4 +1,7 @@
 import json
+import zlib
+
+import pytest
 
 from evals import suite
 
@@ -59,3 +62,79 @@ def test_max_tokens_replaces_each_cap_and_a_run_dir_keeps_one(tmp_path, monkeypa
     suite.record(tmp_path, args(32768), ["gpqa"])  # resuming with the same cap
     with pytest.raises(SystemExit, match="same --max-tokens"):
         suite.record(tmp_path, args(0), ["gpqa"])
+
+
+@pytest.fixture
+def request_mode():
+    """accuracy_eval's module-wide request settings, restored after the test."""
+    from evals import accuracy_eval
+    saved = dict(accuracy_eval.SAMPLING), dict(accuracy_eval.THINKING)
+    yield accuracy_eval
+    for d, v in zip((accuracy_eval.SAMPLING, accuracy_eval.THINKING), saved):
+        d.clear()
+        d.update(v)
+
+
+def test_thinking_requests_and_replies(request_mode, monkeypatch):
+    import argparse
+    ae = request_mode
+    sent, replies = [], []
+    monkeypatch.setattr(ae, "post", lambda url, body, timeout: (sent.append(body), replies.pop(0))[1])
+
+    def reply(content, reasoning=None, finish="stop"):
+        msg = {"content": content, **({"reasoning_content": reasoning} if reasoning else {})}
+        return {"choices": [{"message": msg, "finish_reason": finish}], "usage": {"completion_tokens": 9, "reasoning_tokens": 7}}
+
+    replies.append(reply("Answer: B"))
+    assert ae.ask("u", "q", 100, None) == ("Answer: B", {"completion_tokens": 9, "reasoning_tokens": 7})
+    assert sent[-1]["chat_template_kwargs"] == {"enable_thinking": False} and "seed" not in sent[-1]  # greedy, as before
+
+    ap = argparse.ArgumentParser()
+    ae.add_request_args(ap)
+    ae.apply_request_args(ap, ap.parse_args(["--thinking", "--reasoning-effort", "medium", "--temperature", "1.0", "--seed", "3"]))
+    assert ae.request_mode() == {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "thinking": True, "reasoning_effort": "medium", "seed": 3}
+    replies.append(reply("Answer: C", reasoning="x" * 500 + "so C"))
+    text, usage = ae.ask("u", "q", 100, None)
+    assert (text, usage["reasoning_tail"]) == ("Answer: C", ("x" * 500 + "so C")[-400:])
+    assert sent[-1]["chat_template_kwargs"] == {"enable_thinking": True, "reasoning_effort": "medium"}
+    assert sent[-1]["seed"] == zlib.crc32(b"q", 3) != zlib.crc32(b"q")  # --seed 0 keeps the seeds sampled runs had
+    replies.append(reply("thinking...</think>\n\nAnswer: D"))  # a server without a reasoning parser
+    assert ae.ask("u", "q", 100, None)[0] == "Answer: D"
+    replies.append(reply("thinking that never ends", finish="length"))  # and capped inside the thinking
+    text, usage = ae.ask("u", "q", 100, None)
+    assert (text, usage["reasoning_tail"]) == ("", "thinking that never ends")
+    for bad in (["--seed", "1"], ["--reasoning-effort", "low"]):
+        with pytest.raises(SystemExit):
+            ae.apply_request_args(ap, ap.parse_args(bad))
+
+
+def test_a_run_dir_keeps_one_request_mode(tmp_path, monkeypatch, request_mode):
+    """A run directory from before the request mode was recorded resumes as greedy with thinking off; a thinking run
+    cannot write into it, and needs a cap and no tasks that send their own requests."""
+    import argparse
+    monkeypatch.setattr(suite, "server_info", lambda url: {"target": "t"})
+    monkeypatch.setattr(suite.datasets, "check", lambda names: {})
+    args = argparse.Namespace(label="fast", url="u", model="sharar", plain=False, accept="server", concurrency=4,
+                              engine="e", suite=None, tasks="gpqa", limit=0, max_tokens=0)
+    suite.record(tmp_path, args, ["gpqa"])
+    rec = json.loads((tmp_path / "run.json").read_text())
+    assert rec["request"] == suite.GREEDY
+    del rec["request"]
+    (tmp_path / "run.json").write_text(json.dumps(rec))
+    suite.record(tmp_path, args, ["gpqa"])  # an older run directory resumes
+    request_mode.THINKING.update(thinking=True)
+    with pytest.raises(SystemExit, match="request differ"):
+        suite.record(tmp_path, args, ["gpqa"])
+    for argv, why in ((["--thinking"], "needs --max-tokens"), (["--thinking", "--max-tokens", "65536", "--tasks", "gpqa,needles"], "needles")):
+        with pytest.raises(SystemExit):
+            suite.cmd_run(["--label", "x", "--out", str(tmp_path / "new"), *argv])
+        assert not (tmp_path / "new").exists(), why
+
+
+def test_show_means_repeats(tmp_path, capsys):
+    for k, correct in enumerate(([True, True, False, False], [True, True, True, False])):
+        write_run(tmp_path / f"s{k}", f"seed{k}", {"gpqa": [{"index": i, "correct": c, "completion_tokens": 4} for i, c in enumerate(correct)]})
+    rows = suite.mean_of([suite.summary(tmp_path / "s0"), suite.summary(tmp_path / "s1")])
+    assert (rows["gpqa"]["scores"], rows["gpqa"]["mean"], round(rows["gpqa"]["sd"], 2)) == ([50.0, 75.0], 62.5, 17.68)
+    assert suite.cmd_show([str(tmp_path / "s0"), str(tmp_path / "s1")]) == 0
+    assert "| gpqa | 4 | 50.0% | 75.0% | 62.5% | 17.7 |" in capsys.readouterr().out
