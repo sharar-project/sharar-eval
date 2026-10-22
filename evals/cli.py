@@ -4,6 +4,7 @@
     sharar-eval compare runs/exact runs/fast                                # evals.suite compare
     sharar-eval datasets fetch                                              # evals.datasets fetch
     sharar-eval speed --url URL --workload all                              # evals.speed
+    sharar-eval bench run --engine sharar --engine-version V --url URL --out runs/bench/x   # evals.bench
 
 Each command runs its module as `python -m <module>` would, with the rest of the arguments; `sharar-eval
 <command> --help` shows them.
@@ -25,6 +26,9 @@ COMMANDS = {
     "engine-matrix": ("evals.speed.engine_matrix", [], "Sharar / SGLang / Atlas token-input matrix"),
     "local": ("evals.speed.local", [], "frozen local-use requests (cache variants, mixed arrival, cancellation)"),
     "agent": ("evals.speed.agent", [], "frozen agent-shaped episodes"),
+    "efficiency": ("evals.efficiency", [], "decode speed of any running engine through AIPerf: warm-decode, aggregated-decode"),
+    "bench": ("evals.bench", [], "the bench suite through AIPerf, any engine: decode, long context, prefill, SPEED-Bench"),
+    "check": ("evals.checks", [], "pre-flight check of the request features the benchmarks rely on"),
     "tbench": ("evals.tbench", [], "Terminal-Bench 2.1 through Harbor (oracle, run)"),
     "accuracy": ("evals.accuracy_eval", [], "GSM8K, MGSM, HumanEval and MBPP on their own"),
     "hard": ("evals.hard_eval", [], "MMLU-Pro, GPQA Diamond, IFEval, IFBench and WMT24++ on their own"),

@@ -33,5 +33,5 @@ dev = ["pytest==8.4.2"]  # uv sync installs it; an install as a dependency does 
 include = ["evals*"]
 
 [tool.setuptools.package-data]  # evals/suite.py SHIPPED hashes the same files
-evals = ["datasets.sha256", "workloads/*.json"]
+evals = ["datasets.sha256", "workloads/*.json", "workloads/bench/*.yaml"]
 "evals.speed" = ["data/*"]

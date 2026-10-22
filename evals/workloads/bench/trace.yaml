@@ -1,0 +1,33 @@
+# sharar-eval bench and efficiency: a cell of mooncake_trace rows sharar-eval wrote (bench-v1): the fixed-prompt
+# decode, longctx and prefill requests (evals/speed/decode.py), or efficiency warm-decode's primed and timed SPEED-Bench
+# prompts. The caller runs this once per cell with the endpoint, model, input file, session count, concurrency and
+# artifact directory in the environment; everything else about the requests is fixed here or travels with the rows
+# (sampling, thinking, ignore_eos and the output cap are each row's).
+schemaVersion: "2.0"
+randomSeed: 42
+benchmark:
+  model: ${BENCH_MODEL}
+  endpoint:
+    url: ${BENCH_URL}/v1/chat/completions
+    type: chat
+    streaming: true
+    timeout: 3600.0
+    useServerTokenCount: true
+    useLegacyMaxTokens: true  # max_tokens: every engine accepts it
+  tokenizer:
+    name: ${BENCH_TOKENIZER}
+  dataset:
+    type: file
+    path: ${BENCH_INPUT}
+    format: mooncake_trace
+    sampling: sequential
+  phases:
+    - name: profiling
+      type: concurrency
+      sessions: ${BENCH_SESSIONS}
+      concurrency: ${BENCH_CONCURRENCY}
+  artifacts:
+    dir: ${BENCH_ARTIFACTS}
+    summary: [json]
+    records: [jsonl]
+    raw: ${BENCH_RAW:false}  # efficiency warm-decode's timed pass: every chunk's arrival time and text

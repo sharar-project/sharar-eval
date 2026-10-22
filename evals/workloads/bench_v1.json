@@ -1,0 +1,47 @@
+{
+  "version": "bench-v1",
+  "aiperf": "0.13.0.dev20261020",
+  "engines": {
+    "openai": {"about": "any OpenAI-compatible chat server: only /v1/chat/completions and /v1/models are used"},
+    "sharar": {"flush": "/flush_cache", "info": "/get_server_info"},
+    "sglang": {"flush": "/flush_cache", "info": "/get_server_info"},
+    "vllm": {"flush": "/reset_prefix_cache", "info": "/version"},
+    "llama.cpp": {"info": "/props", "about": "no flush endpoint: cells isolate their caches with nonces and seeds"},
+    "tensorfold": {"about": "no flush or self-description endpoint: cells isolate their caches with nonces and seeds"},
+    "strata": {"about": "no flush or self-description endpoint: cells isolate their caches with nonces and seeds"}
+  },
+  "suites": {
+    "quick": [
+      {"workload": "speedbench", "isl": ["1k", "8k", "32k"], "entropy": ["low_entropy", "high_entropy"],
+       "concurrency": [1, 4], "requests": 8}
+    ],
+    "full": [
+      {"workload": "speedbench", "isl": ["1k", "2k", "8k", "16k", "32k"], "entropy": ["low_entropy", "mixed", "high_entropy"],
+       "concurrency": [1, 2, 4, 8], "requests": 16}
+    ],
+    "speedbench": [
+      {"workload": "speedbench", "isl": ["1k", "2k", "8k", "16k", "32k"], "entropy": ["low_entropy", "mixed", "high_entropy"],
+       "concurrency": [1, 2, 4, 8], "requests": 16}
+    ],
+    "speedbench-qual": [
+      {"workload": "speedbench-qual", "categories": ["coding", "humanities", "math", "multilingual", "qa", "rag", "reasoning", "roleplay", "stem", "summarization", "writing"],
+       "concurrency": [1, 4, 32], "sessions": 80}
+    ],
+    "engines-low": [
+      {"workload": "decode", "tests": ["chat", "prose", "code", "math"], "temperatures": [0, 0.7], "concurrency": [1, 2, 4, 8],
+       "requests_per_stream": 2, "min_requests": 8},
+      {"workload": "longctx", "temperatures": [0], "concurrency": [1, 2, 4, 8], "requests_per_stream": 2, "min_requests": 2},
+      {"workload": "prefill", "lengths": [4000, 8000, 16000, 32000, 64000, 128000]},
+      {"workload": "speedbench-qual", "categories": ["coding", "humanities", "math", "multilingual", "qa", "rag", "reasoning", "roleplay", "stem", "summarization", "writing"],
+       "concurrency": [1, 4], "sessions": 80}
+    ],
+    "engines-high": [
+      {"workload": "decode", "tests": ["chat", "prose", "code", "math"], "temperatures": [0, 0.7], "concurrency": [16, 32, 64, 128],
+       "requests_per_stream": 2, "min_requests": 8},
+      {"workload": "longctx", "temperatures": [0], "concurrency": [16, 32], "requests_per_stream": 2, "min_requests": 2},
+      {"workload": "speedbench-qual", "categories": ["coding", "humanities", "math", "multilingual", "qa", "rag", "reasoning", "roleplay", "stem", "summarization", "writing"],
+       "concurrency": [32], "sessions": 80}
+    ],
+    "engines": [{"include": "engines-low"}, {"include": "engines-high"}]
+  }
+}
