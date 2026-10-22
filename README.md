@@ -63,8 +63,9 @@ For an engine other than Sharar, add `--plain --model <served model name>`.
 | `agentic` | Terminal-Bench 2.1 through Harbor and Terminus-2: every task valid on this machine, two attempts | ~1 day |
 | `all` | `full` + `hard` + `long` + needles (not `agentic`) | ~13 h |
 
-- **Tasks:** gsm8k, humaneval, mbpp, mgsm, mgsm-pl24, mmlupro, gpqa, ifeval, wmt, ruler2-32k,
+- **Tasks:** gsm8k, humaneval, mbpp, mgsm, mgsm-pl24, mmlupro, gpqa, ifeval, ifbench, wmt, ruler2-32k,
   ruler2-64k, ruler2-128k, tbench, tbench-claude-code, tbench-opencode, needles.
+  ifbench (IFBench 300, loose, as its paper reports) is in no suite.
   `--tasks` picks any of them instead of a suite, `--limit N` takes the first N items of each,
   and `--skip` leaves one out.
 - **One run directory per server configuration.** It holds 100-item shards per task, so an
@@ -118,7 +119,7 @@ the client from the pinned tokenizer, so every engine receives identical token I
 | `local`, `agent` | Frozen local-use requests (cache variants, mixed arrival, cancellation) and agent-shaped episodes |
 | `tbench` | Terminal-Bench 2.1 through Harbor: `oracle` once per machine. Runs go through `run`: `tbench` is the Terminus-2 agent on the server's endpoint; `tbench-claude-code` and `tbench-opencode` run those agents with native tool calls through a recording proxy, and each item carries the tool-call check of its traffic |
 | `accuracy` | GSM8K and MGSM (11 languages): exact match. HumanEval and MBPP: pass@1, sandboxed |
-| `hard` | MMLU-Pro, GPQA Diamond, IFEval (reference checker vendored in `evals/ifeval/`), WMT24++ |
+| `hard` | MMLU-Pro, GPQA Diamond, IFEval (reference checker vendored in `evals/ifeval/`), IFBench (AllenAI's checker vendored in `evals/ifbench/`), WMT24++ |
 | `ruler2` | RULER v2 (NVIDIA, 2025): multi-key and multi-value needles and HotpotQA documents, each from basic retrieval to reasoning over what was retrieved (4 levels), at 32K/64K/128K. Ported from NeMo-Skills; `compare --detail` shows each of the 12 tasks |
 | `long-context` | Needle retrieval and prefill/decode rates at 10K-262K |
 | `h2h`, `h2h-report` | Head-to-head serving benchmark: public probes, 22 decode prompts (greedy, t=0.7, t=1.0), long-context TTFT and needles, four-stream aggregate (`evals/workloads/h2h_v1.json`). `--streams 4,8,...,128` makes `conc` a closed-loop sweep: per N, N streams each send their next request as one ends (the 22 prompts in turn by category, numbered so none share a prefix), tokens counted in a window after a warm-up (`--warmup-s`, `--duration-s`), so the server holds N requests throughout |

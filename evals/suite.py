@@ -15,7 +15,7 @@ Suites (Flash-Next on the GB10, 4 streams):
     all     full + hard + long + needles (not agentic)
 
 `--tasks a,b` runs those tasks instead of a suite (names: gsm8k, humaneval, mbpp, mgsm, mgsm-pl24,
-mmlupro, gpqa, ifeval, wmt, ruler2-32k, ruler2-64k, ruler2-128k, tbench, tbench-claude-code, tbench-opencode, needles) and `--limit N`
+mmlupro, gpqa, ifeval, ifbench, wmt, ruler2-32k, ruler2-64k, ruler2-128k, tbench, tbench-claude-code, tbench-opencode, needles) and `--limit N`
 takes the first N items of each; both work with `--suite` too. tbench-claude-code and tbench-opencode are Terminal-Bench with
 native-tool agents, which checks the server's tool calls (evals/tbench.py). A limited run is a prefix of the full one, so a later longer run only adds the rest.
 
@@ -60,6 +60,7 @@ TASKS = {
     "mmlupro": (hard_eval, "mmlupro", {}),
     "gpqa": (hard_eval, "gpqa", {}),
     "ifeval": (hard_eval, "ifeval", {}),
+    "ifbench": (hard_eval, "ifbench", {}),
     "wmt": (hard_eval, "wmt", {}),
     **{t: (ruler2, t, {}) for t in ruler2.TASKS},  # ruler2-32k, ruler2-64k, ruler2-128k
     **{t: (tbench, t, {}) for t in tbench.AGENTS},  # tbench (Terminus-2), tbench-claude-code, tbench-opencode

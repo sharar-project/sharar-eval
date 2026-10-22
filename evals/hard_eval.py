@@ -1,6 +1,6 @@
 """Harder, less saturated task evaluations against a running server (sharar#28): MMLU-Pro (knowledge,
-10 choices), GPQA Diamond (graduate science), IFEval (instruction following) and WMT24++ (English into
-ten languages, chrF++). GSM8K and HumanEval sit at 93-95% for these models, so a small loss needs
+10 choices), GPQA Diamond (graduate science), IFEval and IFBench (instruction following) and WMT24++
+(English into ten languages, chrF++). GSM8K and HumanEval sit at 93-95% for these models, so a small loss needs
 thousands of items; these tasks sit lower, test knowledge, chat and multilingual generation, where
 lossy weight changes move the distribution most, and give more discordant pairs per item.
 
@@ -12,7 +12,9 @@ every arm, `--accept` as there; the default here is `server`, the arm's profile 
 takes the first `--per-category` items (default 100, 1,400 in all) of each of its 14 categories in
 question-id order; GPQA shuffles each question's options with a seed from its text, the same in every
 arm; IFEval is graded strict per prompt with the reference checker (evals/ifeval, google-research
-instruction_following_eval, Apache-2.0); WMT24++ takes the first `--per-language` good-source segments
+instruction_following_eval, Apache-2.0); IFBench (300 prompts, 58 constraint types unseen in IFEval) is
+graded loose per prompt, the metric its paper reports, with its checker (evals/ifbench, allenai/IFBench,
+Apache-2.0), strict recorded beside it; WMT24++ takes the first `--per-language` good-source segments
 (default 100) of each language and scores sentence chrF++ (sacrebleu). Binary tasks compare paired with
 McNemar, WMT24++ with a paired bootstrap of the mean chrF++ and a sign test.
 
@@ -44,6 +46,7 @@ SOURCES = {  # dataset repository, pinned revision, file(s)
     "mmlupro": ("TIGER-Lab/MMLU-Pro", "b189ec765aa7ed75c8acfea42df31fdae71f97be", ["data/test-00000-of-00001.parquet"]),
     "gpqa": ("Idavidrein/gpqa", "83022cefff930aea54f654c0b282e74b9eeda5c6", ["gpqa_diamond.csv"]),  # gated: HF_TOKEN
     "ifeval": ("google/IFEval", "966cd89545d6b6acfd7638bc708b98261ca58e84", ["ifeval_input_data.jsonl"]),
+    "ifbench": ("allenai/IFBench", "1c40f0c10d9b5c5c2f10a175a28007ebb64f7f4d", None),  # GitHub, in datasets.FILES
     "wmt": ("google/wmt24pp", "fd7405c06494bc66a57b25f55d217a72f96e60dc", None),  # one file per language, below
 }
 WMT_LANGS = {"de_DE": "German", "es_MX": "Spanish", "fr_FR": "French", "ru_RU": "Russian", "ja_JP": "Japanese",
@@ -106,9 +109,9 @@ def gpqa_items() -> list[dict]:
     return items
 
 
-def ifeval_items() -> list[dict]:
+def ifeval_items(name: str = "ifeval.jsonl") -> list[dict]:
     return [{"id": r["key"], "group": "", "prompt": r["prompt"], "instruction_id_list": r["instruction_id_list"],
-             "kwargs": r["kwargs"]} for r in rows("ifeval.jsonl")]
+             "kwargs": r["kwargs"]} for r in rows(name)]
 
 
 def wmt_items(per_language: int) -> list[dict]:
@@ -135,9 +138,13 @@ def choice_pred(text: str) -> str | None:
     return found[-1] if found else None
 
 
-def ifeval_grade(it: dict, response: str) -> dict:
-    """Strict and loose prompt-level results with the reference checker (its evaluation_lib, inlined)."""
-    from evals.ifeval import instructions_registry as registry
+def ifeval_grade(it: dict, response: str, task: str = "ifeval") -> dict:
+    """Strict and loose prompt-level results with the task's reference checker (its evaluation_lib, inlined;
+    IFBench's is IFEval's). `correct` is the task's headline metric: strict for IFEval, loose for IFBench."""
+    if task == "ifbench":
+        from evals.ifbench import instructions_registry as registry
+    else:
+        from evals.ifeval import instructions_registry as registry
 
     def follows(text: str, iid: str, kwargs: dict) -> bool:
         inst = registry.INSTRUCTION_DICT[iid](iid)
@@ -155,6 +162,8 @@ def ifeval_grade(it: dict, response: str) -> dict:
     for iid, kwargs in zip(it["instruction_id_list"], it["kwargs"]):
         strict.append(follows(response, iid, kwargs))
         loose.append(any(follows(v, iid, kwargs) for v in variants))
+    if task == "ifbench":
+        return {"correct": all(loose), "strict": all(strict), "instructions": len(loose), "instructions_followed": sum(loose)}
     return {"correct": all(strict), "loose": all(loose), "instructions": len(strict), "instructions_followed": sum(strict)}
 
 
@@ -167,9 +176,9 @@ def run(task: str, url: str, items: list[dict], accept, max_tokens: int, concurr
             text, usage = ask(url, choice_prompt(it), max_tokens, accept)
             pred = choice_pred(text)
             row = {"correct": pred == it["gold"], "pred": pred, "gold": it["gold"], "text_tail": text[-160:]}
-        elif task == "ifeval":
+        elif task in ("ifeval", "ifbench"):
             text, usage = ask(url, it["prompt"], max_tokens, accept)
-            row = ifeval_grade(it, text)
+            row = ifeval_grade(it, text, task)
         else:
             lang = WMT_LANGS[it["group"]]
             text, usage = ask(url, f"Translate the following English text into {lang}. Reply with the translation only.\n\n{it['source']}",
@@ -192,13 +201,15 @@ TASKS = {  # task: (dataset files, default max_tokens)
     "mmlupro": (["hard/mmlupro.jsonl"], 4096),
     "gpqa": (["hard/gpqa_diamond.jsonl"], 8192),
     "ifeval": (["hard/ifeval.jsonl", "nltk/tokenizers/punkt.zip", "nltk/tokenizers/punkt_tab.zip"], 4096),
+    "ifbench": (["hard/ifbench.jsonl", "nltk/tokenizers/punkt.zip", "nltk/tokenizers/punkt_tab.zip", "nltk/corpora/stopwords.zip",
+                 "nltk/taggers/averaged_perceptron_tagger_eng.zip"], 4096),
     "wmt": (["hard/wmt24pp.jsonl"], 1024),
 }
 
 
 def load(task: str, per_category: int = 100, per_language: int = 100) -> list[dict]:
     return {"mmlupro": lambda: mmlupro_items(per_category), "gpqa": gpqa_items, "ifeval": ifeval_items,
-            "wmt": lambda: wmt_items(per_language)}[task]()
+            "ifbench": lambda: ifeval_items("ifbench.jsonl"), "wmt": lambda: wmt_items(per_language)}[task]()
 
 
 # ---------------------------------------------------------------- compare
