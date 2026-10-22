@@ -41,3 +41,21 @@ def test_evals_tree_hashes_the_shipped_files(tmp_path, monkeypatch):
     assert suite.evals_tree() == first
     (copy / "suite.py").write_text((copy / "suite.py").read_text() + "\n# changed\n")
     assert suite.evals_tree() != first
+
+
+def test_max_tokens_replaces_each_cap_and_a_run_dir_keeps_one(tmp_path, monkeypatch):
+    import argparse
+
+    import pytest
+    monkeypatch.setattr(suite, "server_info", lambda url: {"target": "t"})
+    monkeypatch.setattr(suite.datasets, "check", lambda names: {})
+    assert (suite.task_max_tokens("gpqa"), suite.task_max_tokens("gpqa", 32768), suite.task_max_tokens("needles", 32768)) == (8192, 32768, None)
+
+    def args(cap):
+        return argparse.Namespace(label="fast", url="u", model="sharar", plain=False, accept="server", concurrency=4,
+                                  engine="e", suite=None, tasks="gpqa", limit=0, max_tokens=cap)
+    suite.record(tmp_path, args(32768), ["gpqa"])
+    assert json.loads((tmp_path / "run.json").read_text())["tasks"]["gpqa"] == {"max_tokens": 32768}
+    suite.record(tmp_path, args(32768), ["gpqa"])  # resuming with the same cap
+    with pytest.raises(SystemExit, match="same --max-tokens"):
+        suite.record(tmp_path, args(0), ["gpqa"])

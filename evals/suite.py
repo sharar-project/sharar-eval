@@ -24,6 +24,8 @@ A run directory holds one server configuration. Each task runs in shards of 100 
 the GSM8K shards `quick` wrote. run.json records the label, the server's /get_server_info,
 the engine version given with --engine, this repository's commit, the sha256 of every dataset
 file read and each task's token cap; a later `run` into the same directory must match it.
+`--max-tokens N` replaces every task's cap for the run (GPQA's default is 8,192, MMLU-Pro's and IFEval's 4,096);
+a capped answer scores as wrong, so a model that reasons longer loses items to the cap, not to its answers.
 
 `compare` pairs the two runs item by item on every task both have (on the items both have):
 binary tasks with McNemar and a normal interval of the paired difference, WMT24++ (chrF++) and
@@ -124,17 +126,18 @@ def task_items(name: str) -> list[dict]:
     return mod.load(task, **opts)
 
 
-def task_max_tokens(name: str) -> int | None:
+def task_max_tokens(name: str, override: int = 0) -> int | None:
+    """The task's token cap: `override` (run --max-tokens) for any task that has one, else the task's default."""
     mod, task, _ = TASKS[name]
-    return mod.TASKS[task][1] if mod else None
+    return (override or mod.TASKS[task][1]) if mod else None
 
 
-def run_shard(out: Path, name: str, url: str, items: list[dict], accept, concurrency: int) -> list[dict]:
+def run_shard(out: Path, name: str, url: str, items: list[dict], accept, concurrency: int, max_tokens: int = 0) -> list[dict]:
     mod, task, _ = TASKS[name]
     if mod is accuracy_eval:
-        return mod.TASKS[task][2](url, items, accept, task_max_tokens(name), concurrency)
+        return mod.TASKS[task][2](url, items, accept, task_max_tokens(name, max_tokens), concurrency)
     workdir = {"workdir": out / name} if getattr(mod, "WORKDIR", False) else {}  # tbench keeps its harbor jobs there
-    return mod.run(task, url, items, accept, task_max_tokens(name), concurrency, **workdir)
+    return mod.run(task, url, items, accept, task_max_tokens(name, max_tokens), concurrency, **workdir)
 
 
 # ---------------------------------------------------------------- run
@@ -160,8 +163,11 @@ def record(out: Path, args, names: list[str]) -> dict:
         raise SystemExit(f"{out}: recorded --engine {rec['engine']!r}, given {args.engine!r}")
     rec["engine"] = rec.get("engine") or args.engine
     for name in names:
+        task = {"max_tokens": task_max_tokens(name, args.max_tokens), **TASKS[name][2]}
+        if name in rec["tasks"] and rec["tasks"][name] != task:  # a task's shards all share one cap
+            raise SystemExit(f"{out}: {name} was run with {rec['tasks'][name]}, now {task}; use the same --max-tokens or another --out")
         rec["datasets"].update(datasets.check(task_files(name)))
-        rec["tasks"][name] = {"max_tokens": task_max_tokens(name), **TASKS[name][2]}
+        rec["tasks"][name] = task
     rec["runs"].append({"suite": args.suite, "tasks": args.tasks, "limit": args.limit or None, "started": dt.datetime.now().isoformat(timespec="seconds"),
                         "evals_commit": git("rev-parse", "HEAD") or installed_commit(),
                         "evals_dirty": bool(git("status", "--porcelain", "--", "evals")) if git("rev-parse", "HEAD") else None})
@@ -183,7 +189,7 @@ def run_needles(out: Path, url: str) -> None:
     tmp.rename(done)
 
 
-def run_task(out: Path, name: str, limit: int, url: str, accept, concurrency: int) -> None:
+def run_task(out: Path, name: str, limit: int, url: str, accept, concurrency: int, max_tokens: int = 0) -> None:
     items = task_items(name)
     total = min(limit, len(items)) if limit else len(items)
     for start in range(0, total, SHARD):
@@ -194,7 +200,7 @@ def run_task(out: Path, name: str, limit: int, url: str, accept, concurrency: in
         if not want:
             continue
         t0 = time.monotonic()
-        rows = run_shard(out, name, url, want, accept, concurrency)
+        rows = run_shard(out, name, url, want, accept, concurrency, max_tokens)
         for r in rows:
             r["index"] += first
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,6 +223,8 @@ def cmd_run(argv: list[str]) -> int:
     ap.add_argument("--engine", default=None, help="engine version, recorded verbatim (image tag and commit, or a pinned digest)")
     ap.add_argument("--accept", default="server", help="K:M acceptance pinned on every request (1:0 exact); 'server' (default): the server's profile")
     ap.add_argument("--concurrency", type=int, default=4)
+    ap.add_argument("--max-tokens", type=int, default=0,
+                    help="token cap for every task in this run instead of each task's default (recorded; the needles keep theirs)")
     ap.add_argument("--skip", action="append", default=[], choices=sorted(TASKS), help="leave this task out (repeatable)")
     ap.add_argument("--model", default="sharar")
     ap.add_argument("--plain", action="store_true", help="another OpenAI-compatible server: no Sharar-only request fields, no /get_server_info")
@@ -242,7 +250,7 @@ def cmd_run(argv: list[str]) -> int:
         if name == "needles":
             run_needles(args.out, args.url)
         else:
-            run_task(args.out, name, limit, args.url, accept, args.concurrency)
+            run_task(args.out, name, limit, args.url, accept, args.concurrency, args.max_tokens)
     rec = json.loads((args.out / "run.json").read_text())
     rec["runs"][-1]["finished"] = dt.datetime.now().isoformat(timespec="seconds")
     (args.out / "run.json").write_text(json.dumps(rec, indent=1) + "\n")
