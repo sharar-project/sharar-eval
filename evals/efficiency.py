@@ -28,6 +28,12 @@ that keeps fewer prompts cached would otherwise evict the earliest ones, the ver
 - per-stream decode tok/s: each request's (tokens - 1) over its first to last token, median and slowest;
 - longest pause: the longest gap between two chunks of one request inside the window (an engine that sets a request
   aside while the others decode shows it here; it already lowers both rates);
+- token counts per chunk: the timed pass keeps AIPerf's raw export (every chunk's arrival time and text), and each
+  chunk's tokens are its text's tokens in the pinned tokenizer, scaled so a request's chunks add up to the server's
+  count. A server that streams in bursts (a pause, then one chunk carrying many tokens) or holds a stream back to its
+  end is counted when the tokens arrive. Cells without the raw export (`report --recompute` of an older run) spread a
+  request's tokens evenly over its chunks, and a held-back stream (its final chunk has no latency in AIPerf's records)
+  over its span, up to the real end from AIPerf's full_decode_duration;
 - cache hit: prompt tokens read from cache over prompt tokens, lowest over the requests (where the server reports it).
 A cell whose requests fail or miss the cache (lowest hit under --min-hit) gets one re-prime and retry; if it fails
 again, the row stops there ("stopped": the engine recomputed prompts it could not keep cached at that N, which is a
@@ -141,15 +147,16 @@ def rows(prompts, output_tokens: int, prime: bool, tag: str) -> list[dict]:
             for k, m in enumerate(prompts)]
 
 
-def run_aiperf(cell: Path, rows_, concurrency: int, ctx: dict) -> Path:
-    """One AIPerf pass over rows (bench's trace.yaml); returns its artifacts directory, or raises RuntimeError."""
+def run_aiperf(cell: Path, rows_, concurrency: int, ctx: dict, raw: bool = False) -> Path:
+    """One AIPerf pass over rows (bench's trace.yaml); returns its artifacts directory, or raises RuntimeError. `raw`
+    also keeps every streamed chunk with its arrival time and text (profile_export_raw.jsonl)."""
     import shutil
     shutil.rmtree(cell, ignore_errors=True)
     cell.mkdir(parents=True)
     (cell / "input.jsonl").write_text("".join(json.dumps(r, separators=(",", ":")) + "\n" for r in rows_))
     env = {"BENCH_URL": ctx["url"], "BENCH_MODEL": ctx["model"], "BENCH_TOKENIZER": ctx["tokenizer"],
            "BENCH_ARTIFACTS": str(cell / "aiperf"), "BENCH_CONCURRENCY": str(concurrency),
-           "BENCH_INPUT": str(cell / "input.jsonl"), "BENCH_SESSIONS": str(len(rows_))}
+           "BENCH_INPUT": str(cell / "input.jsonl"), "BENCH_SESSIONS": str(len(rows_)), "BENCH_RAW": str(raw).lower()}
     with (cell / "aiperf.log").open("w") as log:
         code = subprocess.run([*ctx["aiperf"], "profile", "-f", str(bench.CONFIGS / "trace.yaml"), "--ui", "none"], cwd=bench.WORK,
                               stdout=log, stderr=subprocess.STDOUT, env={**os.environ, **env}).returncode
@@ -159,9 +166,54 @@ def run_aiperf(cell: Path, rows_, concurrency: int, ctx: dict) -> Path:
     return cell / "aiperf"
 
 
-def warm_summary(artifacts: Path, expected: int, want: int) -> dict:
-    """Decode-only numbers of one warmed burst from AIPerf's per-request records (times in ms, timestamps in ns)."""
+HELD_BACK_S = 1.0  # a timeline that ends this much before the response does is a held-back stream
+
+
+def token_counter(snapshot: str):
+    """Tokens in each of a list of texts, by the pinned tokenizer (texts counted apart, no special tokens)."""
+    from tokenizers import Tokenizer
+    tok = Tokenizer.from_file(str(Path(snapshot) / "tokenizer.json"))
+    return lambda texts: [len(e.ids) for e in tok.encode_batch(texts, add_special_tokens=False)] if texts else []
+
+
+def raw_chunks(artifacts: Path) -> dict[str, list[tuple[float, str]]]:
+    """Each request's streamed chunks that carry output (content, reasoning or a tool call), as (arrival time in s,
+    text), from AIPerf's raw export; {} without one."""
+    path = artifacts / "profile_export_raw.jsonl"
+    if not path.is_file():
+        return {}
+    out = {}
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        t0 = r["metadata"]["request_start_ns"] / 1e9 - r["start_perf_ns"] / 1e9
+        chunks = []
+        for resp in r.get("responses") or []:
+            text = ""
+            for packet in resp.get("packets") or []:
+                if packet.get("name") != "data" or packet.get("value", "").strip() == "[DONE]":
+                    continue
+                try:
+                    delta = ((json.loads(packet["value"]).get("choices") or [{}])[0].get("delta") or {})
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                text += (delta.get("content") or "") + (delta.get("reasoning_content") or "")
+                for call in delta.get("tool_calls") or []:
+                    fn = call.get("function") or {}
+                    text += (fn.get("name") or "") + (fn.get("arguments") or "")
+            if text:
+                chunks.append((t0 + resp["perf_ns"] / 1e9, text))
+        out[r["metadata"]["x_request_id"]] = chunks
+    return out
+
+
+def warm_summary(artifacts: Path, expected: int, want: int, count=None) -> dict:
+    """Decode-only numbers of one warmed burst from AIPerf's per-request records (times in ms, timestamps in ns). With
+    AIPerf's raw export and `count` (token_counter), every chunk carries its own token count (its text's tokens, scaled
+    so a request's chunks add up to the server's count); without, a request's tokens are spread evenly over its chunks."""
     value = lambda r, k: ((r.get("metrics") or {}).get(k) or {}).get("value")  # noqa: E731
+    raw = raw_chunks(artifacts) if count else {}
     reqs, errors = [], 0
     for line in (artifacts / "profile_export.jsonl").read_text().splitlines():
         if not line.strip():
@@ -176,17 +228,31 @@ def warm_summary(artifacts: Path, expected: int, want: int) -> dict:
         for g in gaps:
             t += g / 1e3
             times.append(t)
+        # a server that holds a stream back and sends the rest in its final chunk leaves that chunk without a latency,
+        # so the timeline stops early (vLLM, 8k N=8: 1.4 s of an 86 s request); full_decode_duration (first token to
+        # the end of the response) gives the real end, and such a request is counted over its whole span
+        full = value(r, "full_decode_duration")
+        held = full is not None and first + full / 1e3 - times[-1] > HELD_BACK_S
+        if held:
+            times.append(first + full / 1e3)
         osl = value(r, "output_sequence_length") or 0
+        weights = None if held else [osl / len(times)] * len(times)
+        chunks = raw.get(r["metadata"].get("x_request_id"))
+        if chunks:  # the chunks as they arrived, each with its own tokens
+            times, held = [t for t, _ in chunks], False
+            tokens_ = count([text for _, text in chunks])
+            weights = [k * osl / sum(tokens_) for k in tokens_] if sum(tokens_) else [osl / len(times)] * len(times)
         prompt, cached = value(r, "usage_prompt_tokens"), value(r, "usage_prompt_cache_read_tokens")
-        reqs.append({"times": times, "osl": osl, "ttft_s": value(r, "time_to_first_token") / 1e3, "prompt": prompt,
-                     "hit": cached / prompt if cached is not None and prompt else None})
+        reqs.append({"times": times, "weights": weights, "osl": osl, "ttft_s": value(r, "time_to_first_token") / 1e3,
+                     "prompt": prompt, "hit": cached / prompt if cached is not None and prompt else None, "held": held})
     out = {"requests": len(reqs), "errors": errors + max(0, expected - len(reqs) - errors),
            "short": sum(r["osl"] < want for r in reqs)}
     if not reqs:
         return out
     start, end = max(r["times"][0] for r in reqs), min(r["times"][-1] for r in reqs)
-    # tokens each request streamed inside the window (its tokens spread evenly over its chunks)
-    inside = [r["osl"] / len(r["times"]) * sum(start < t <= end for t in r["times"]) for r in reqs]
+    # tokens each request streamed inside the window: its chunks' tokens, or spread over its span if held back
+    inside = [r["osl"] * max(0.0, min(end, r["times"][-1]) - max(start, r["times"][0])) / (r["times"][-1] - r["times"][0])
+              if r["held"] else sum(w for t, w in zip(r["times"], r["weights"]) if start < t <= end) for r in reqs]
     rates = [(r["osl"] - 1) / (r["times"][-1] - r["times"][0]) for r in reqs if r["times"][-1] > r["times"][0]]
     # the most requests decoding at the same moment (an end sorts before a start at the same instant)
     edges = sorted([(r["times"][0], 1) for r in reqs] + [(r["times"][-1], -1) for r in reqs])
@@ -194,17 +260,19 @@ def warm_summary(artifacts: Path, expected: int, want: int) -> dict:
     for _, step in edges:
         level += step
         peak = max(peak, level)
-    pauses = [b - a for r in reqs for a, b in zip(r["times"], r["times"][1:]) if start < b <= end]
+    pauses = [b - a for r in reqs if not r["held"] for a, b in zip(r["times"], r["times"][1:]) if start < b <= end]
     hits = [r["hit"] for r in reqs if r["hit"] is not None]
     out.update(window_s=end - start if end > start else 0.0,
                window_share=(end - start) / statistics.median(r["times"][-1] - r["times"][0] for r in reqs) if end > start else 0.0,
                aggregate_decode_tok_s=sum(inside) / (end - start) if end > start else None,
                per_stream_tok_s_p50=statistics.median(rates) if rates else None,
                per_stream_tok_s_min=min(rates) if rates else None,
-               peak_decoding=peak, pause_s_max=max(pauses) if pauses else None,
+               peak_decoding=peak, pause_s_max=max(pauses) if pauses else None, held_back=sum(r["held"] for r in reqs),
                output_tokens_min=min(r["osl"] for r in reqs), prompt_tokens_avg=statistics.mean(r["prompt"] or 0 for r in reqs),
                cache_hit_min=min(hits) if hits else None, ttft_s_max=max(r["ttft_s"] for r in reqs),
-               chunks_per_request=statistics.mean(len(r["times"]) for r in reqs))
+               chunks_per_request=statistics.mean(len(r["times"]) for r in reqs),
+               chunk_tokens_max=max((max(r["weights"]) for r in reqs if r["weights"]), default=None),
+               token_counts="per chunk" if raw else "spread over chunks")
     return out
 
 
@@ -239,6 +307,7 @@ def warm_decode(args) -> int:
         for c in result["checks"]:
             print(checks.line(c), flush=True)
     bench.WORK.mkdir(parents=True, exist_ok=True)
+    count = token_counter(ctx["tokenizer"])
     print(WARM_HEADER, flush=True)
     unverified = False
     for context in args.context:
@@ -267,8 +336,9 @@ def warm_decode(args) -> int:
                         reason = f"priming failed: {exc}"
                         break
                     try:
-                        art = run_aiperf(cell, rows(prompts[:n], args.output_tokens, False, f"{context}-{category}"), n, ctx)
-                        summary = warm_summary(art, n, args.output_tokens)
+                        art = run_aiperf(cell, rows(prompts[:n], args.output_tokens, False, f"{context}-{category}"), n, ctx,
+                                         raw=True)
+                        summary = warm_summary(art, n, args.output_tokens, count)
                     except Exception as exc:  # noqa: BLE001
                         reason, summary = f"decode failed: {exc}", None
                         if not bench.alive(url):
@@ -315,7 +385,8 @@ def warm_row(context, category, n, s) -> str:
     return (f"{context:>4s} {category:12s} {n:>4d} {f(s.get('aggregate_decode_tok_s')):>10s} {f(s.get('per_stream_tok_s_p50')):>10s} "
             f"{f(s.get('per_stream_tok_s_min')):>8s} {f(s.get('window_s')):>8s} {f(100 * s.get('window_share', 0), '.0f'):>5s}% "
             f"{'-' if hit is None else f'{100 * hit:.0f}%':>7s} {f(s.get('ttft_s_max'), '.2f'):>8s} "
-            f"{f(s.get('pause_s_max'), '.2f'):>9s} {f(s.get('prompt_tokens_avg'), '.0f'):>7s} {f(s.get('output_tokens_min'), '.0f'):>7s}")
+            f"{f(s.get('pause_s_max'), '.2f'):>9s} {f(s.get('prompt_tokens_avg'), '.0f'):>7s} {f(s.get('output_tokens_min'), '.0f'):>7s}"
+            + (f"  ({s['held_back']} held back)" if s.get("held_back") else ""))
 
 
 def prepare(args) -> int:
@@ -326,6 +397,7 @@ def prepare(args) -> int:
 
 
 def report(args) -> int:
+    count = None
     for run in args.runs:
         mode = json.loads((run / "efficiency.json").read_text())["mode"]
         if mode == "warm-decode":
@@ -336,7 +408,14 @@ def report(args) -> int:
                                 key=lambda g: (tokens(g.name.split("-", 1)[0]), g.name)):
                 context, category = group.name.split("-", 1)
                 for p in sorted(group.glob("c*/cell.json"), key=lambda p: int(p.parent.name[1:])):
-                    print(warm_row(context, category, int(p.parent.name[1:]), json.loads(p.read_text())["summary"]))
+                    cell = json.loads(p.read_text())
+                    if args.recompute:  # the summary again from the cell's AIPerf records, with this version's maths
+                        if count is None and (p.parent / "aiperf" / "profile_export_raw.jsonl").is_file():
+                            from evals.speed import model as snapshot_model
+                            count = token_counter(str(snapshot_model.snapshot_dir(None)))
+                        cell["summary"] = warm_summary(p.parent / "aiperf", cell["n"], meta["output_tokens"], count)
+                        p.write_text(json.dumps(cell, indent=1))
+                    print(warm_row(context, category, cell["n"], cell["summary"]))
                 if (group / "stopped.json").is_file():
                     st = json.loads((group / "stopped.json").read_text())
                     print(f"{context:>4s} {category:12s} {st['n']:>4d}  stopped: {st['reason']}")
@@ -385,6 +464,8 @@ def main() -> int:
     q.add_argument("--aiperf", help=f"AIPerf executable (default: uvx aiperf=={bench.SUITE['aiperf']})")
     r = sub.add_parser("report", help="tables of run directories")
     r.add_argument("runs", type=Path, nargs="+")
+    r.add_argument("--recompute", action="store_true",
+                   help="warm-decode: rebuild each cell's summary from its AIPerf records with this version (rewrites cell.json)")
     args = parser.parse_args()
     return {"aggregated-decode": aggregated_decode, "warm-decode": warm_decode, "prepare": prepare,
             "report": report}[args.mode](args)

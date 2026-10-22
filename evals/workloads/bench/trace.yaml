@@ -30,3 +30,4 @@ benchmark:
     dir: ${BENCH_ARTIFACTS}
     summary: [json]
     records: [jsonl]
+    raw: ${BENCH_RAW:false}  # efficiency warm-decode's timed pass: every chunk's arrival time and text

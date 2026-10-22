@@ -42,7 +42,7 @@ def test_configs_read_only_variables_the_launcher_sets():
     common = {"BENCH_URL", "BENCH_MODEL", "BENCH_TOKENIZER", "BENCH_ARTIFACTS", "BENCH_CONCURRENCY"}
     sets = {"speedbench.yaml": common | {"BENCH_DATASET", "BENCH_REQUESTS", "BENCH_SEED"},
             "speedbench_qual.yaml": common | {"BENCH_DATASET", "BENCH_SESSIONS", "BENCH_SEED"},
-            "trace.yaml": common | {"BENCH_INPUT", "BENCH_SESSIONS"}}
+            "trace.yaml": common | {"BENCH_INPUT", "BENCH_SESSIONS", "BENCH_RAW"}}  # BENCH_RAW defaults to false
     assert {p.name for p in bench.CONFIGS.glob("*.yaml")} == set(sets)
     for name, expected in sets.items():
         used = set(re.findall(r"\$\{(BENCH_[A-Z_]+)", (bench.CONFIGS / name).read_text()))

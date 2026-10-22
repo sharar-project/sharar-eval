@@ -194,7 +194,11 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   (default 95%) of their prompt from cache is primed and run once more; if it misses again the row stops there
   ("stopped": the engine had to recompute prompts it could not keep cached at that N) and larger N are skipped.
   A cell in which fewer than N requests were ever decoding at the same moment stops the row at once ("decodes at
-  most k of N at once"): the engine queued the rest behind a batch, slot or memory admission limit.
+  most k of N at once"): the engine queued the rest behind a batch, slot or memory admission limit. The timed pass
+  keeps AIPerf's raw export, so each chunk is counted with its own tokens (its text in the pinned tokenizer, scaled
+  to the server's count): a server that streams in bursts or holds a stream back is counted when its tokens arrive.
+  `report --recompute RUN` rebuilds stored cells with the current maths (older cells without the raw export spread a
+  request's tokens over its chunks, and over its whole span when the server held the stream back).
   `--max-tokens-in-flight 256k` skips cells whose N x context is larger. The engine needs prefix caching, and should report cached prompt tokens
   (`usage.prompt_tokens_details.cached_tokens`): without them the hit column reads "-" and nothing confirms prefill
   was skipped. N has no cap here; the engine's batch size and memory are the limit.
