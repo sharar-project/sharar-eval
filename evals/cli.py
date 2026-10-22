@@ -26,6 +26,7 @@ COMMANDS = {
     "engine-matrix": ("evals.speed.engine_matrix", [], "Sharar / SGLang / Atlas token-input matrix"),
     "local": ("evals.speed.local", [], "frozen local-use requests (cache variants, mixed arrival, cancellation)"),
     "agent": ("evals.speed.agent", [], "frozen agent-shaped episodes"),
+    "efficiency": ("evals.efficiency", [], "decode speed of any running engine through AIPerf: warm-decode, aggregated-decode"),
     "bench": ("evals.bench", [], "the bench suite through AIPerf, any engine: decode, long context, prefill, SPEED-Bench"),
     "check": ("evals.checks", [], "pre-flight check of the request features the benchmarks rely on"),
     "tbench": ("evals.tbench", [], "Terminal-Bench 2.1 through Harbor (oracle, run)"),

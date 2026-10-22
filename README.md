@@ -165,6 +165,44 @@ time. AIPerf does the sending; sharar-eval fixes what is sent and versions it as
 - **Changing the suite** (cells, configs, AIPerf version) makes a new version: copy `bench_v1.json` to
   `bench_v2.json` rather than editing results' meaning in place.
 
+## Efficiency (decode, any engine)
+
+`sharar-eval efficiency` measures decode speed alone, by mode, with AIPerf sending the requests (it reuses the bench
+suite's runner, configs and engine table). The engine must already be serving at `--url`; `--engine` only picks its
+optional flush and self-description endpoints from `bench_v1.json` (`openai` for any other server), so another
+engine is another `--url`. Engine settings (memory, batch size, profiles) belong to the engine's own launch command.
+
+    uv run sharar-eval efficiency prepare --context 8k,16k,32k     # once per machine, NO engine serving
+    uv run sharar-eval efficiency warm-decode --engine sharar --engine-version "main@b211a0a --throughput" \
+        --url http://127.0.0.1:30004 --context 8k,16k --categories low_entropy --concurrency 1,2,4,8,16,32,64 \
+        --out runs/efficiency/sharar-warm
+    uv run sharar-eval efficiency aggregated-decode --engine vllm --engine-version "vllm 0.11" \
+        --url http://127.0.0.1:8000 --tests code --concurrency 1,4,16,64 --slots 8 --out runs/efficiency/vllm-agg
+    uv run sharar-eval efficiency report runs/efficiency/sharar-warm runs/efficiency/vllm-agg
+
+- **`warm-decode`**: decode with every prompt already in the engine's cache, at a fixed context length. Prompts are
+  SPEED-Bench's throughput split (1k-32k tokens; `low_entropy` = code completion from repositories and text sorting,
+  `mixed` = needle-in-a-haystack and exam questions, `high_entropy` = book continuation and writing). Per (context,
+  kind, N), the cache is flushed, the N prompts are sent one at a time with one output token so the engine caches
+  them, then the same N are sent together, each forced to `--output-tokens` (default 1,024) with `ignore_eos`.
+  Only the window in which all N decode is timed: from the last request's first token to the first request's last
+  token, so neither prefill nor time to first token is in it. Reported per cell: aggregate decode tokens/s (tokens
+  streamed in the window over its length), per-request decode tokens/s (median and slowest), the window's length
+  and share of each request's decode, the lowest cache hit and the longest time to first token. A cell whose
+  requests fail, answer short, or read under `--min-hit` (default 95%) of their prompt from cache is primed and run
+  once more; if it misses again the row stops there ("stopped": the engine had to recompute prompts it could not
+  keep cached at that N) and larger N are skipped. `--max-tokens-in-flight 256k` skips cells whose N x context is
+  larger. The engine needs prefix caching, and should report cached prompt tokens
+  (`usage.prompt_tokens_details.cached_tokens`): without them the hit column reads "-" and nothing confirms prefill
+  was skipped. N has no cap here; the engine's batch size and memory are the limit.
+- **`aggregated-decode`**: the bench suite's short-prompt decode cells (chat / prose / code / math, ~50 tokens in,
+  up to 1,024 out) chosen by flags, N requests in flight as a closed loop. Reported: aggregate decode tokens/s
+  (first token to last) and per-request tokens/s. `--slots` is the engine's batch or slot limit; above it requests
+  queue and per-request speed would hide the wait, so the report prints "queued" there.
+- **Results.** `efficiency.json` holds the options (a rerun into the same directory must use the same ones and skips
+  finished cells), `run.json` the engine, version, server description and dataset hashes, `checks.json` the
+  pre-flight checks, and each cell AIPerf's exports with `cell.json` (`warm/<context>-<kind>/c<N>/` for warm-decode).
+
 ## Commands
 
 `uv run sharar-eval <command> --help` shows each command's arguments.
@@ -179,6 +217,7 @@ time. AIPerf does the sending; sharar-eval fixes what is sent and versions it as
 | `engine-matrix` | Sharar / SGLang / Atlas token-input matrix with attested output and cache counts |
 | `local`, `agent` | Frozen local-use requests (cache variants, mixed arrival, cancellation) and agent-shaped episodes |
 | `bench` | The bench suite above: `run`, `report`, `list` |
+| `efficiency` | Decode speed by mode, any engine: `warm-decode` (prompts already cached, decode-only window), `aggregated-decode` (short prompts, N in flight), `prepare`, `report` |
 | `check` | Before a benchmark, whether the server honours the request features the benchmarks rely on, which an engine may accept and silently ignore. Every request is greedy with thinking off. Eight checks: no reasoning comes back with thinking off; a streamed reply with `stream_options.include_usage` carries integer token counts; `max_tokens` stops the reply with finish_reason `length`; `ignore_eos` gives exactly `max_tokens` tokens (efficiency warm-decode needs it); `top_k` / `min_p` are accepted; and a tool call has typed arguments (an integer and a JSON array), whole and streamed, and the reply after a tool result quotes it. PASS, FAIL or UNCHECKED with a reason; `--out` keeps them as JSON. Exit 0 all pass, 1 any fail or unchecked, 2 the server could not be reached |
 | `tbench` | Terminal-Bench 2.1 through Harbor: `oracle` once per machine. Runs go through `run`: `tbench` is the Terminus-2 agent on the server's endpoint; `tbench-claude-code` and `tbench-opencode` run those agents with native tool calls through a recording proxy, and each item carries the tool-call check of its traffic |
 | `accuracy` | GSM8K and MGSM (11 languages): exact match. HumanEval and MBPP: pass@1, sandboxed |
