@@ -18,6 +18,8 @@ dependencies = [
   "tokenizers>=0.22.2",  # shared with sharar: a floor, not a pin
   "wonderwords==2.2.0",
   "editdistance==0.8.1",
+  "emoji==2.15.0",  # IFBench's checker (evals/ifbench)
+  "syllapy==0.8.0",
   "jinja2>=3.1.6",  # shared with sharar
 ]
 

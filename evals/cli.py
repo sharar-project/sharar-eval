@@ -27,7 +27,7 @@ COMMANDS = {
     "agent": ("evals.speed.agent", [], "frozen agent-shaped episodes"),
     "tbench": ("evals.tbench", [], "Terminal-Bench 2.1 through Harbor (oracle, run)"),
     "accuracy": ("evals.accuracy_eval", [], "GSM8K, MGSM, HumanEval and MBPP on their own"),
-    "hard": ("evals.hard_eval", [], "MMLU-Pro, GPQA Diamond, IFEval and WMT24++ on their own"),
+    "hard": ("evals.hard_eval", [], "MMLU-Pro, GPQA Diamond, IFEval, IFBench and WMT24++ on their own"),
     "ruler2": ("evals.ruler2", [], "RULER v2 on its own"),
     "long-context": ("evals.long_context", [], "needle retrieval and prefill/decode rates at long context"),
     "h2h": ("evals.h2h", [], "head-to-head serving benchmark"),

@@ -71,6 +71,15 @@ wheels = [
 ]
 
 [[package]]
+name = "emoji"
+version = "2.15.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/78/0d2db9382c92a163d7095fc08efff7800880f830a152cfced40161e7638d/emoji-2.15.0.tar.gz", hash = "sha256:eae4ab7d86456a70a00a985125a03263a5eac54cd55e51d7e184b1ed3b6757e4", size = 615483, upload-time = "2025-09-21T12:13:02.755Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/5e/4b5aaaabddfacfe36ba7768817bd1f71a7a810a43705e531f3ae4c690767/emoji-2.15.0-py3-none-any.whl", hash = "sha256:205296793d66a89d88af4688fa57fd6496732eb48917a87175a023c8138995eb", size = 608433, upload-time = "2025-09-21T12:13:01.197Z" },
+]
+
+[[package]]
 name = "filelock"
 version = "4.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -451,12 +460,14 @@ source = { editable = "." }
 dependencies = [
     { name = "absl-py" },
     { name = "editdistance" },
+    { name = "emoji" },
     { name = "immutabledict" },
     { name = "jinja2" },
     { name = "langdetect" },
     { name = "nltk" },
     { name = "pyarrow" },
     { name = "sacrebleu" },
+    { name = "syllapy" },
     { name = "tokenizers" },
     { name = "wonderwords" },
 ]
@@ -470,12 +481,14 @@ dev = [
 requires-dist = [
     { name = "absl-py", specifier = "==2.1.0" },
     { name = "editdistance", specifier = "==0.8.1" },
+    { name = "emoji", specifier = "==2.15.0" },
     { name = "immutabledict", specifier = "==4.2.1" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "langdetect", specifier = "==1.0.9" },
     { name = "nltk", specifier = "==3.9.1" },
     { name = "pyarrow", specifier = "==17.0.0" },
     { name = "sacrebleu", specifier = "==2.4.3" },
+    { name = "syllapy", specifier = "==0.8.0" },
     { name = "tokenizers", specifier = ">=0.22.2" },
     { name = "wonderwords", specifier = "==2.2.0" },
 ]
@@ -490,6 +503,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
+name = "syllapy"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c8/0c/32605cf1126804f5422c7b3266b8e4f77fdfc561fd1cb4cbbeb69eabe281/syllapy-0.8.0.tar.gz", hash = "sha256:8dbf266909fa8b62d3c16425200326809244253532631d774d2465663c4e7436", size = 28073, upload-time = "2026-08-01T17:48:16.31Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/75/04/31e44d11ce517ac39b87d0746bdd492f4c80770795b9a9e10c8eea722ffb/syllapy-0.8.0-py3-none-any.whl", hash = "sha256:eea0a65665ad6c980686785af3e588cfcc8d359d5975ba67b18dea9cef6b0425", size = 24882, upload-time = "2026-08-01T17:48:14.955Z" },
 ]
 
 [[package]]
