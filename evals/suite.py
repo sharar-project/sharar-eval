@@ -50,7 +50,7 @@ from evals.accuracy_eval import SERVER, mcnemar
 REPO = Path(__file__).resolve().parent.parent
 PACKAGE = Path(__file__).resolve().parent
 # What the package ships (pyproject.toml's packages and package-data): the files evals_tree hashes.
-SHIPPED = ("**/*.py", "datasets.sha256", "workloads/*.json", "speed/data/*")
+SHIPPED = ("**/*.py", "datasets.sha256", "workloads/*.json", "workloads/bench/*.yaml", "speed/data/*")
 SHARD = 100
 # task name: (module, module task, loader options)
 TASKS = {

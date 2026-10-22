@@ -1,0 +1,35 @@
+# sharar-eval bench: one SPEED-Bench throughput cell (bench-v1), AIPerf's public loader. `sharar-eval bench` runs it
+# once per (dataset, concurrency) with the endpoint, model, dataset (speed_bench_throughput_<isl>_<entropy>),
+# request count, concurrency, sampling seed and artifact directory in the environment. AIPerf fetches the rows the published files
+# mask from their sources; that needs a Hugging Face login whose account accepted cais/hle's terms.
+# Requests: greedy, thinking off, natural stops capped at 1,024 tokens (SPEED-Bench's own runs use 4,096).
+schemaVersion: "2.0"
+randomSeed: ${BENCH_SEED}  # per cell (sharar-eval bench): cells draw different rows
+benchmark:
+  model: ${BENCH_MODEL}
+  endpoint:
+    url: ${BENCH_URL}/v1/chat/completions
+    type: chat
+    streaming: true
+    timeout: 1800.0
+    useServerTokenCount: true
+    extra:
+      temperature: 0
+      max_tokens: 1024  # not max_completion_tokens: every engine accepts this one
+      chat_template_kwargs: {enable_thinking: false}
+  tokenizer:
+    name: ${BENCH_TOKENIZER}
+  datasets:
+    - name: main
+      type: public
+      dataset: ${BENCH_DATASET}
+      sampling: shuffle  # without replacement, in the cell's seeded order
+  phases:
+    - name: profiling
+      type: concurrency
+      requests: ${BENCH_REQUESTS}
+      concurrency: ${BENCH_CONCURRENCY}
+  artifacts:
+    dir: ${BENCH_ARTIFACTS}
+    summary: [json]
+    records: [jsonl]
