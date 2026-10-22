@@ -30,6 +30,19 @@ def test_warm_summary_times_only_the_window_where_every_request_decodes(tmp_path
     assert s["per_stream_tok_s_p50"] == pytest.approx(9 / 0.9)
     assert s["window_share"] == pytest.approx(0.35 / 0.9)
     assert s["cache_hit_min"] == pytest.approx(0.99) and s["ttft_s_max"] == pytest.approx(1.55)
+    assert s["peak_decoding"] == 2 and s["pause_s_max"] == pytest.approx(0.1)
+
+
+def test_warm_summary_sees_queued_requests_and_pauses(tmp_path):
+    # b starts decoding only after a has finished: never 2 at once, no window
+    art = write(tmp_path, [record(0.0, 100, [100] * 4, 5, cid="a"), record(0.0, 600, [100] * 4, 5, cid="b")])
+    s = efficiency.warm_summary(art, expected=2, want=5)
+    assert s["peak_decoding"] == 1 and s["window_s"] == 0.0 and s["aggregate_decode_tok_s"] is None
+    # three decode together; c is set aside for 0.8 s inside the window
+    art = write(tmp_path, [record(0.0, 100, [100] * 20, 21, cid="a"), record(0.0, 100, [100] * 20, 21, cid="b"),
+                           record(0.0, 100, [100, 800] + [100] * 10, 13, cid="c")])
+    s = efficiency.warm_summary(art, expected=3, want=13)
+    assert s["peak_decoding"] == 3 and s["pause_s_max"] == pytest.approx(0.8)
 
 
 def test_warm_summary_spreads_a_speculative_burst_over_its_chunks(tmp_path):
@@ -84,3 +97,35 @@ def test_report_lists_contexts_by_length_and_stopped_rows(tmp_path, capsys):
     lines = [line for line in capsys.readouterr().out.splitlines() if "low_entropy" in line]
     assert [line.split()[0] for line in lines] == ["8k", "16k", "16k"]
     assert "stopped: cache hit 0%" in lines[-1]
+
+
+def test_warm_decode_stops_a_row_where_the_engine_queues_without_a_retry(tmp_path, monkeypatch, capsys):
+    from evals import suite
+    from evals.speed import model
+    monkeypatch.setattr(model, "snapshot_dir", lambda snapshot=None: tmp_path)
+    monkeypatch.setattr(suite, "evals_tree", lambda: "test")
+    monkeypatch.setattr(bench, "alive", lambda url: True)
+    monkeypatch.setattr(bench, "describe", lambda url, engine: {})
+    monkeypatch.setattr(bench, "resolved", lambda name: None)
+    monkeypatch.setattr(bench, "aiperf_command", lambda a: ["aiperf"])
+    monkeypatch.setattr(bench, "flush", lambda url, engine: None)
+    monkeypatch.setattr(bench, "WORK", tmp_path / "work")
+    monkeypatch.setattr(efficiency, "speedbench_prompts", lambda c, k, n: [[{"role": "user", "content": str(i)}] for i in range(n)])
+    timed = []
+
+    def run_aiperf(cell, rows_, n, ctx):
+        cell.mkdir(parents=True, exist_ok=True)
+        if not cell.name.startswith("prime"):
+            timed.append(n)
+        return cell
+    monkeypatch.setattr(efficiency, "run_aiperf", run_aiperf)
+    good = {"requests": 0, "errors": 0, "short": 0, "cache_hit_min": 1.0, "aggregate_decode_tok_s": 1.0, "window_share": 1.0}
+    # the engine decodes at most 4 at once
+    monkeypatch.setattr(efficiency, "warm_summary", lambda art, n, want: {**good, "requests": n, "peak_decoding": min(n, 4)})
+    args = argparse.Namespace(engine="openai", engine_version="x", url="http://x", model="m", snapshot=None, aiperf=None,
+                              out=tmp_path / "run", context=["8k"], categories=["low_entropy"], concurrency=[1, 4, 8, 16],
+                              output_tokens=16, min_hit=0.95, max_tokens_in_flight=None, no_checks=True)
+    assert efficiency.warm_decode(args) == 0
+    assert timed == [1, 4, 8]  # N = 8 ran once, not retried; N = 16 not run
+    stopped = json.loads((args.out / "warm" / "8k-low_entropy" / "stopped.json").read_text())
+    assert stopped["n"] == 8 and stopped["reason"].startswith("decodes at most 4 of 8 at once")

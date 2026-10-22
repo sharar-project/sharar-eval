@@ -25,11 +25,15 @@ that keeps fewer prompts cached would otherwise evict the earliest ones, the ver
   nobody prefills;
 - aggregate decode tok/s: tokens streamed inside the window over its length (a request's tokens are spread evenly over
   its streamed chunks: exact at one token a chunk, an average where a chunk carries a speculative burst);
-- per-stream decode tok/s: each request's (tokens - 1) over its first to last token, median;
+- per-stream decode tok/s: each request's (tokens - 1) over its first to last token, median and slowest;
+- longest pause: the longest gap between two chunks of one request inside the window (an engine that sets a request
+  aside while the others decode shows it here; it already lowers both rates);
 - cache hit: prompt tokens read from cache over prompt tokens, lowest over the requests (where the server reports it).
 A cell whose requests fail or miss the cache (lowest hit under --min-hit) gets one re-prime and retry; if it fails
 again, the row stops there ("stopped": the engine recomputed prompts it could not keep cached at that N, which is a
 cache capacity limit, not a failure) and larger N are not run, nor are cells over --max-tokens-in-flight (N x context).
+A cell in which fewer than N requests were ever decoding at the same moment stops the row at once: the engine queued
+the rest (a batch, slot or memory admission limit), so it does not decode N together.
 The engine must already be serving at --url; nothing here starts or stops it. It needs prefix caching, and should report
 cached prompt tokens (usage.prompt_tokens_details.cached_tokens): without them the hit column is "-" and nothing
 confirms prefill was skipped. A flush endpoint (--engine) is optional.
@@ -181,17 +185,23 @@ def warm_summary(artifacts: Path, expected: int, want: int) -> dict:
     if not reqs:
         return out
     start, end = max(r["times"][0] for r in reqs), min(r["times"][-1] for r in reqs)
-    inside = 0.0
-    for r in reqs:
-        per_chunk = r["osl"] / len(r["times"])
-        inside += per_chunk * sum(start < t <= end for t in r["times"])
+    # tokens each request streamed inside the window (its tokens spread evenly over its chunks)
+    inside = [r["osl"] / len(r["times"]) * sum(start < t <= end for t in r["times"]) for r in reqs]
     rates = [(r["osl"] - 1) / (r["times"][-1] - r["times"][0]) for r in reqs if r["times"][-1] > r["times"][0]]
+    # the most requests decoding at the same moment (an end sorts before a start at the same instant)
+    edges = sorted([(r["times"][0], 1) for r in reqs] + [(r["times"][-1], -1) for r in reqs])
+    level, peak = 0, 0
+    for _, step in edges:
+        level += step
+        peak = max(peak, level)
+    pauses = [b - a for r in reqs for a, b in zip(r["times"], r["times"][1:]) if start < b <= end]
     hits = [r["hit"] for r in reqs if r["hit"] is not None]
     out.update(window_s=end - start if end > start else 0.0,
                window_share=(end - start) / statistics.median(r["times"][-1] - r["times"][0] for r in reqs) if end > start else 0.0,
-               aggregate_decode_tok_s=inside / (end - start) if end > start else None,
+               aggregate_decode_tok_s=sum(inside) / (end - start) if end > start else None,
                per_stream_tok_s_p50=statistics.median(rates) if rates else None,
                per_stream_tok_s_min=min(rates) if rates else None,
+               peak_decoding=peak, pause_s_max=max(pauses) if pauses else None,
                output_tokens_min=min(r["osl"] for r in reqs), prompt_tokens_avg=statistics.mean(r["prompt"] or 0 for r in reqs),
                cache_hit_min=min(hits) if hits else None, ttft_s_max=max(r["ttft_s"] for r in reqs),
                chunks_per_request=statistics.mean(len(r["times"]) for r in reqs))
@@ -271,6 +281,9 @@ def warm_decode(args) -> int:
                               file=sys.stderr, flush=True)
                     if summary["errors"] or summary["requests"] < n:
                         reason = f"{summary['errors']} of {n} requests failed"
+                    elif summary.get("peak_decoding", n) < n:  # an engine limit: a retry would queue the same way
+                        reason = f"decodes at most {summary['peak_decoding']} of {n} at once: the engine queued the rest"
+                        break
                     elif summary["short"]:
                         reason = f"{summary['short']} of {n} answers came back short of {args.output_tokens} tokens (ignore_eos not honoured?)"
                     elif hit is not None and hit < args.min_hit:
@@ -293,7 +306,7 @@ def warm_decode(args) -> int:
 
 
 WARM_HEADER = (f"{'ctx':>4s} {'kind':12s} {'N':>4s} {'aggregate':>10s} {'per stream':>10s} {'slowest':>8s} {'window s':>8s} "
-               f"{'share':>6s} {'hit min':>7s} {'TTFT max':>8s} {'prompt':>7s} {'out min':>7s}")
+               f"{'share':>6s} {'hit min':>7s} {'TTFT max':>8s} {'pause max':>9s} {'prompt':>7s} {'out min':>7s}")
 
 
 def warm_row(context, category, n, s) -> str:
@@ -302,7 +315,7 @@ def warm_row(context, category, n, s) -> str:
     return (f"{context:>4s} {category:12s} {n:>4d} {f(s.get('aggregate_decode_tok_s')):>10s} {f(s.get('per_stream_tok_s_p50')):>10s} "
             f"{f(s.get('per_stream_tok_s_min')):>8s} {f(s.get('window_s')):>8s} {f(100 * s.get('window_share', 0), '.0f'):>5s}% "
             f"{'-' if hit is None else f'{100 * hit:.0f}%':>7s} {f(s.get('ttft_s_max'), '.2f'):>8s} "
-            f"{f(s.get('prompt_tokens_avg'), '.0f'):>7s} {f(s.get('output_tokens_min'), '.0f'):>7s}")
+            f"{f(s.get('pause_s_max'), '.2f'):>9s} {f(s.get('prompt_tokens_avg'), '.0f'):>7s} {f(s.get('output_tokens_min'), '.0f'):>7s}")
 
 
 def prepare(args) -> int:

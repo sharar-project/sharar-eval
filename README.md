@@ -188,11 +188,14 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   Only the window in which all N decode is timed: from the last request's first token to the first request's last
   token, so neither prefill nor time to first token is in it. Reported per cell: aggregate decode tokens/s (tokens
   streamed in the window over its length), per-request decode tokens/s (median and slowest), the window's length
-  and share of each request's decode, the lowest cache hit and the longest time to first token. A cell whose
-  requests fail, answer short, or read under `--min-hit` (default 95%) of their prompt from cache is primed and run
-  once more; if it misses again the row stops there ("stopped": the engine had to recompute prompts it could not
-  keep cached at that N) and larger N are skipped. `--max-tokens-in-flight 256k` skips cells whose N x context is
-  larger. The engine needs prefix caching, and should report cached prompt tokens
+  and share of each request's decode, the lowest cache hit, the longest time to first token, and the longest pause
+  between two chunks of one request inside the window (an engine that sets a request aside while the others decode
+  shows it there; it already lowers both rates). A cell whose requests fail, answer short, or read under `--min-hit`
+  (default 95%) of their prompt from cache is primed and run once more; if it misses again the row stops there
+  ("stopped": the engine had to recompute prompts it could not keep cached at that N) and larger N are skipped.
+  A cell in which fewer than N requests were ever decoding at the same moment stops the row at once ("decodes at
+  most k of N at once"): the engine queued the rest behind a batch, slot or memory admission limit.
+  `--max-tokens-in-flight 256k` skips cells whose N x context is larger. The engine needs prefix caching, and should report cached prompt tokens
   (`usage.prompt_tokens_details.cached_tokens`): without them the hit column reads "-" and nothing confirms prefill
   was skipped. N has no cap here; the engine's batch size and memory are the limit.
 - **`aggregated-decode`**: the bench suite's short-prompt decode cells (chat / prose / code / math, ~50 tokens in,
