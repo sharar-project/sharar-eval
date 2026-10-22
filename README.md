@@ -79,8 +79,19 @@ For an engine other than Sharar, add `--plain --model <served model name>`.
   McNemar and a 95% interval of the paired difference for binary tasks, a paired bootstrap of
   the per-item score for WMT24++ and RULER v2 (0-100), counts for needles, and all binary tasks
   pooled. `--json` writes the scorecard.
-- **Requests are greedy with thinking off,** and every arm sends identical prompts. By default the
+- **Requests are greedy with thinking off by default,** and every arm sends identical prompts. By default the
   server's profile sets the acceptance rule (`--accept server`); `--accept 1:0` pins exact acceptance.
+- **Thinking runs:** `--thinking` turns thinking on (`--reasoning-effort xhigh|medium|low`, the template's
+  xhigh by default) and needs `--max-tokens`; only the reply after the thinking is graded, and the thinking's
+  length and last 400 characters are kept per item. `--temperature T` samples (top_p 0.95, top_k 20, the
+  checkpoint's generation config; Qwen3.8 recommends 1.0 with thinking) with one seed per item, `--seed S` gives
+  another set of seeds. run.json records these as `request`, so each seed is its own run directory, and
+  `show DIR1 DIR2 ...` prints every seed's score with their mean and standard deviation. The needles and
+  Terminal-Bench send their own requests and refuse a thinking or sampled run.
+
+      uv run sharar-eval run --url http://127.0.0.1:30004 --label exact-s0 --tasks gpqa,ifbench \
+          --thinking --temperature 1.0 --seed 0 --max-tokens 65536 --out runs/exact-think-s0
+      uv run sharar-eval show runs/exact-think-s0 runs/exact-think-s1 runs/exact-think-s2
 - **Repeatability:** at 4 streams a Sharar server is not item-for-item repeatable, even with exact
   acceptance, because batch composition changes the numerics; at 1 stream it is. Two runs of the
   same configuration therefore differ on a few items, which is part of the noise the paired tests measure.

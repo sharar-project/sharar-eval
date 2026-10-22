@@ -17,7 +17,7 @@ import sys
 COMMANDS = {
     "run": ("evals.suite", ["run"], "run a suite or tasks against a server into a run directory"),
     "compare": ("evals.suite", ["compare"], "paired scorecard of two run directories"),
-    "show": ("evals.suite", ["show"], "one run directory's scores"),
+    "show": ("evals.suite", ["show"], "one run directory's scores (several: their mean)"),
     "datasets": ("evals.datasets", [], "fetch or check the pinned datasets"),
     "speed": ("evals.speed", [], "AIPerf throughput and latency on the frozen prompts"),
     "sharegpt": ("evals.speed.sharegpt", [], "ShareGPT first turns in length buckets at several concurrencies"),

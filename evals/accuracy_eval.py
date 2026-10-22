@@ -11,8 +11,9 @@ for the reasoning in the question's language; `--per-language N` takes the first
 N items of every language. MBPP is the 500-task test split (task ids 11-510) of
 the original release, graded on its three `test_list` asserts.
 
-Greedy (or `--temperature T`: sampled with top_p 0.95, top_k 20 and one seed per
-item shared by every arm), thinking disabled, identical prompts for every arm;
+Greedy with thinking disabled by default (`--thinking` turns it on, `--reasoning-effort` sets the
+template's level, xhigh by default; `--temperature T` samples with top_p 0.95, top_k 20 and one seed
+per item shared by every arm, `--seed S` another set of seeds), identical prompts for every arm;
 `--accept K:M` pins the acceptance rule per request (1:0 = exact, 2:1.0 = the
 relaxed default; `server` sends no acceptance fields, so the server's profile
 default applies). HumanEval and MBPP
@@ -49,19 +50,58 @@ def post(url: str, body: dict, timeout: float = 900) -> dict:
 
 SAMPLING = {"temperature": 0.0}  # --temperature T samples with top_p 0.95, top_k 20 (the checkpoint's generation config)
 SERVER = {"model": "sharar", "plain": False}  # --model / --plain: another OpenAI-compatible server (no Sharar-only fields)
+# --thinking / --reasoning-effort (None: the template's default, xhigh on Qwen3.8) / --seed (the per-item seeds' offset)
+THINKING = {"thinking": False, "reasoning_effort": None, "seed": 0}
+EFFORTS = ("xhigh", "medium", "low")
+
+
+def request_mode() -> dict:
+    """The sampling and thinking settings every request of a run shares (recorded in run.json and result files)."""
+    return {**SAMPLING, **THINKING}
+
+
+def add_request_args(ap: argparse.ArgumentParser) -> None:
+    ap.add_argument("--temperature", type=float, default=0.0,
+                    help="sample at this temperature (top_p 0.95, top_k 20, one seed per prompt shared by every arm)")
+    ap.add_argument("--seed", type=int, default=0, help="with --temperature: another seed per prompt (repeat a sampled run)")
+    ap.add_argument("--thinking", action="store_true", help="thinking on (the model's default; off unless given)")
+    ap.add_argument("--reasoning-effort", choices=EFFORTS, help="with --thinking: the template's reasoning effort (default xhigh)")
+
+
+def apply_request_args(ap: argparse.ArgumentParser, args) -> None:
+    if args.seed and args.temperature <= 0:
+        ap.error("--seed needs --temperature")
+    if args.reasoning_effort and not args.thinking:
+        ap.error("--reasoning-effort needs --thinking")
+    if args.temperature > 0:
+        SAMPLING.update(temperature=args.temperature, top_p=0.95, top_k=20)
+    THINKING.update(thinking=args.thinking, reasoning_effort=args.reasoning_effort, seed=args.seed)
 
 
 def ask(url: str, content: str, max_tokens: int, accept: tuple[int, float]) -> tuple[str, dict]:
+    """The reply (thinking removed) and the usage, with the thinking's last 400 characters as usage["reasoning_tail"]."""
+    kwargs = {"enable_thinking": THINKING["thinking"]}
+    if THINKING["reasoning_effort"]:
+        kwargs["reasoning_effort"] = THINKING["reasoning_effort"]
     body = {"model": SERVER["model"], "messages": [{"role": "user", "content": content}], **SAMPLING, "max_tokens": max_tokens,
-            "chat_template_kwargs": {"enable_thinking": False}}
+            "chat_template_kwargs": kwargs}
     if not SERVER["plain"]:
         body["trace"] = False
         if accept is not None:  # None: the server's default acceptance (its profile)
             body.update(accept_top_k=accept[0], accept_margin=accept[1])
     if body["temperature"] > 0:
-        body["seed"] = zlib.crc32(content.encode())  # the same seed per item in every arm
+        body["seed"] = zlib.crc32(content.encode(), THINKING["seed"])  # the same seed per item in every arm; --seed 0 as before
     out = post(url, body, timeout=max(900, max_tokens / 10))  # a long cap (run --max-tokens): 10 tokens a second at the least
-    return out["choices"][0]["message"].get("content") or "", out.get("usage") or {}
+    choice, usage = out["choices"][0], dict(out.get("usage") or {})
+    text, reasoning = choice["message"].get("content") or "", choice["message"].get("reasoning_content") or ""
+    if "</think>" in text:  # a server without a reasoning parser: the thinking arrives in the content
+        reasoning, text = text.rsplit("</think>", 1)
+        text = text.lstrip()
+    elif THINKING["thinking"] and not reasoning and choice.get("finish_reason") == "length":
+        reasoning, text = text, ""  # and capped inside it: no reply
+    if reasoning:
+        usage["reasoning_tail"] = reasoning[-400:]
+    return text, usage
 
 
 # ---------------------------------------------------------------- GSM8K
@@ -251,7 +291,6 @@ def main() -> int:
     ap.add_argument("--url", default="http://127.0.0.1:30001")
     ap.add_argument("--task", choices=sorted(TASKS), required=True)
     ap.add_argument("--label", required=True)
-    ap.add_argument("--temperature", type=float, default=0.0, help="sample at this temperature (top_p 0.95, top_k 20, one seed per prompt shared by every arm)")
     ap.add_argument("--accept", default="1:0", help="K:M acceptance pinned on every request (1:0 exact); 'server': send none (the server's default)")
     ap.add_argument("--start", type=int, default=0, help="skip the first N items (a shard of a longer run; with --limit)")
     ap.add_argument("--limit", type=int, default=0)
@@ -261,10 +300,10 @@ def main() -> int:
     ap.add_argument("--output", type=Path, required=True)
     ap.add_argument("--model", default="sharar")
     ap.add_argument("--plain", action="store_true", help="another OpenAI-compatible server: no accept/trace fields, no /get_server_info")
+    add_request_args(ap)
     args = ap.parse_args()
     SERVER.update(model=args.model, plain=args.plain)
-    if args.temperature > 0:
-        SAMPLING.update(temperature=args.temperature, top_p=0.95, top_k=20)
+    apply_request_args(ap, args)
     if args.accept == "server":
         accept = None
     else:
@@ -283,7 +322,7 @@ def main() -> int:
     if not args.plain:
         with urllib.request.urlopen(f"{args.url}/get_server_info", timeout=10) as r:
             info = json.loads(r.read())
-    result = {"label": args.label, "task": args.task, "accept": accept if accept is not None else "server", "per_language": args.per_language or None, "start": args.start, "sampling": dict(SAMPLING), "n": len(rows), "accuracy": acc, "wall_seconds": wall,
+    result = {"label": args.label, "task": args.task, "accept": accept if accept is not None else "server", "per_language": args.per_language or None, "start": args.start, "sampling": request_mode(), "n": len(rows), "accuracy": acc, "wall_seconds": wall,
               "max_tokens": max_tokens, "speculative": info.get("speculative"), "items": rows}
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / f"{args.label}-{args.task}.json").write_text(json.dumps(result, indent=1))
