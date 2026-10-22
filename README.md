@@ -67,7 +67,8 @@ For an engine other than Sharar, add `--plain --model <served model name>`.
   ruler2-64k, ruler2-128k, tbench, tbench-claude-code, tbench-opencode, needles.
   ifbench (IFBench 300, loose, as its paper reports) is in no suite.
   `--tasks` picks any of them instead of a suite, `--limit N` takes the first N items of each,
-  and `--skip` leaves one out.
+  and `--skip` leaves one out. `--max-tokens N` replaces every task's token cap (GPQA 8,192, MMLU-Pro and
+  IFEval 4,096 by default; a capped answer scores as wrong).
 - **One run directory per server configuration.** It holds 100-item shards per task, so an
   interrupted run resumes where it stopped, a later, longer run only adds the rest, and `full`
   reuses the GSM8K shards `quick` wrote.

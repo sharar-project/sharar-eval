@@ -60,7 +60,7 @@ def ask(url: str, content: str, max_tokens: int, accept: tuple[int, float]) -> t
             body.update(accept_top_k=accept[0], accept_margin=accept[1])
     if body["temperature"] > 0:
         body["seed"] = zlib.crc32(content.encode())  # the same seed per item in every arm
-    out = post(url, body)
+    out = post(url, body, timeout=max(900, max_tokens / 10))  # a long cap (run --max-tokens): 10 tokens a second at the least
     return out["choices"][0]["message"].get("content") or "", out.get("usage") or {}
 
 
