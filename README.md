@@ -208,7 +208,8 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   AdaLEval text sorting, whose shares in the file change with length; other kinds by sub-category): each source is
   shuffled with `--prompt-seed` (default 0) and the sources are taken in turn, so every length gets the same mix.
   `--exclude-sources` leaves sources out. An engine without a flush endpoint passes `--flush-cmd` (a restart) to empty
-  its cache before each burst. Where the server reports speculation counters (Sharar's `/get_server_info`
+  its cache before each burst. `--prime-passes 2` sends each burst's prompts twice before timing, for an engine
+  that keeps a prompt's cache only once it has seen it twice (vLLM's Nemotron recipes). Where the server reports speculation counters (Sharar's `/get_server_info`
   `spec_stats`), each burst records the share of drafted tokens accepted and the tokens emitted per request per
   verify round.
   Only the window in which all N decode is timed: from the last request's first token to the first request's last
