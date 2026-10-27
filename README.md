@@ -240,6 +240,7 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   (`--min-bursts 3`: N = 16 two passes, N = 32 three). Cache-hit floor 60% (vLLM's prefix cache keeps 80-95% of these
   hybrid-model prompts). The checkpoint's own sampling (temperature 1.0, top-p 0.95, thinking at `xhigh`). `suite
   --flush-cmd` passes warm-decode's. `cross-engine-thinking-off`: the same cells with thinking off (sampling unchanged).
+  `cross-engine-n4`: its N = 1, 2 and 4 cells only, for an engine setting that decodes at most 4 requests at once.
   `smoke`: a few-minute check of an engine.
 - **Results.** `efficiency.json` holds the options (a rerun into the same directory must use the same ones and skips
   finished cells), `run.json` the engine, version, server description and dataset hashes, `checks.json` the
