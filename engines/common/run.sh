@@ -36,6 +36,15 @@ finish() { [ $UP = 1 ] && bash "$E/serve.sh" down "$OUT" >> "$LOG" 2>&1; touch "
 trap finish EXIT
 rm -f "$OUT/.done"
 nohup bash "$HERE/dlog.sh" "$OUT/disk.log" 172800 "$OUT/.done" > /dev/null 2>&1 < /dev/null &
+# the probe's sampling is the suite's own (defaults.env's TEMPERATURE / TOP_P / REASONING are its fallback)
+eval "$(python3 -I - "$ROOT/evals/workloads/efficiency_v1.json" "$SUITE" <<'PY'
+import json, sys
+w = json.load(open(sys.argv[1]))["suites"].get(sys.argv[2], {}).get("warm-decode", {})
+for key, var in (("temperature", "TEMPERATURE"), ("top_p", "TOP_P"), ("reasoning", "REASONING")):
+    if key in w:
+        print(f"{var}={w[key]}")
+PY
+)"
 VERSION="$ENGINE_LABEL; setting $SETTING: $SETTING_DESC ($(hostname))"
 log "$ENGINE/$SETTING on $(hostname), $(avail_gib) GiB free: suite $SUITE -> $OUT"
 bash "$E/serve.sh" up "$SETTING" "$OUT" >> "$LOG" 2>&1 || die "$ENGINE did not start (see $OUT)"
