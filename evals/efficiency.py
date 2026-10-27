@@ -595,7 +595,8 @@ def report(args) -> int:
     count = None
     for run in args.runs:
         if (run / "suite.json").is_file():  # a suite run: its parts
-            report(argparse.Namespace(runs=[run / p for p in PARTS if (run / p / "efficiency.json").is_file()]))
+            report(argparse.Namespace(runs=[run / p for p in PARTS if (run / p / "efficiency.json").is_file()],
+                                      recompute=getattr(args, "recompute", False)))
             continue
         mode = json.loads((run / "efficiency.json").read_text())["mode"]
         if mode == "warm-decode":
