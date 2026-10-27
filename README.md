@@ -239,7 +239,8 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   N = 1 runs 32 bursts of one and N = 32 a burst of all 32; every cell is timed at least three times in whole passes
   (`--min-bursts 3`: N = 16 two passes, N = 32 three). Cache-hit floor 60% (vLLM's prefix cache keeps 80-95% of these
   hybrid-model prompts). The checkpoint's own sampling (temperature 1.0, top-p 0.95, thinking at `xhigh`). `suite
-  --flush-cmd` passes warm-decode's. `smoke`: a few-minute check of an engine.
+  --flush-cmd` passes warm-decode's. `cross-engine-thinking-off`: the same cells with thinking off (sampling unchanged).
+  `smoke`: a few-minute check of an engine.
 - **Results.** `efficiency.json` holds the options (a rerun into the same directory must use the same ones and skips
   finished cells), `run.json` the engine, version, server description and dataset hashes, `checks.json` the
   pre-flight checks, and each cell AIPerf's exports with `cell.json` (`warm/<context>-<kind>/c<N>/` for warm-decode).
