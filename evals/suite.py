@@ -15,8 +15,8 @@ Suites (Flash-Next on the GB10, 4 streams):
     all     full + hard + long + needles (not agentic)
 
 `--tasks a,b` runs those tasks instead of a suite (names: gsm8k, humaneval, mbpp, mgsm, mgsm-pl24,
-mmlupro, gpqa, ifeval, ifbench, wmt, ruler2-32k, ruler2-64k, ruler2-128k, tbench, tbench-claude-code, tbench-opencode, needles) and `--limit N`
-takes the first N items of each; both work with `--suite` too. tbench-claude-code and tbench-opencode are Terminal-Bench with
+mmlupro, gpqa, ifeval, ifbench, wmt, lcb_v6, ruler2-32k, ruler2-64k, ruler2-128k, tbench, tbench-claude-code, tbench-opencode, needles) and `--limit N`
+takes the first N items of each; both work with `--suite` too. lcb_v6 (LiveCodeBench, evals/lcb.py) is in no suite. tbench-claude-code and tbench-opencode are Terminal-Bench with
 native-tool agents, which checks the server's tool calls (evals/tbench.py). A limited run is a prefix of the full one, so a later longer run only adds the rest.
 
 A run directory holds one server configuration. Each task runs in shards of 100 items
@@ -25,7 +25,7 @@ its first), so an interrupted run resumes where it stopped and `full` reuses the
 `quick` wrote. A failed request is retried once without stopping the others. run.json records the label, the server's /get_server_info,
 the engine version given with --engine, this repository's commit, the sha256 of every dataset
 file read and each task's token cap; a later `run` into the same directory must match it.
-`--max-tokens N` replaces every task's cap for the run (GPQA's default is 8,192, MMLU-Pro's and IFEval's 4,096);
+`--max-tokens N` replaces every task's cap for the run (GPQA's default is 8,192, MMLU-Pro's and IFEval's 4,096, LiveCodeBench's 131,072);
 a capped answer scores as wrong, so a model that reasons longer loses items to the cap, not to its answers.
 
 Requests are greedy with thinking off unless the run asks otherwise, for every task but the needles and
@@ -52,7 +52,7 @@ import urllib.request
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
-from evals import accuracy_eval, agent_traffic, datasets, hard_eval, ruler2, tbench
+from evals import accuracy_eval, agent_traffic, datasets, hard_eval, lcb, ruler2, tbench
 from evals.accuracy_eval import SERVER, add_request_args, apply_request_args, mcnemar, request_mode
 
 REPO = Path(__file__).resolve().parent.parent
@@ -72,6 +72,7 @@ TASKS = {
     "ifeval": (hard_eval, "ifeval", {}),
     "ifbench": (hard_eval, "ifbench", {}),
     "wmt": (hard_eval, "wmt", {}),
+    "lcb_v6": (lcb, "lcb_v6", {}),  # LiveCodeBench v6: every problem new in release_v6 (175); in no suite
     **{t: (ruler2, t, {}) for t in ruler2.TASKS},  # ruler2-32k, ruler2-64k, ruler2-128k
     **{t: (tbench, t, {}) for t in tbench.AGENTS},  # tbench (Terminus-2), tbench-claude-code, tbench-opencode
     "needles": (None, "needles", {"lengths": [16384, 65536], "depths": [0.9, 0.5, 0.1], "output_tokens": 64}),
