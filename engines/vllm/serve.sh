@@ -18,6 +18,9 @@ fi
 HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 . "$HERE/../common/defaults.env"; . "$HERE/../common/lib.sh"; . "$HERE/versions.env"
 export DOCKER_CONTEXT=${DOCKER_CONTEXT:-default}
+# run-recipe.sh looks for the model in, and mounts into the container, $HF_HOME: make it the cache the pins are
+# checked in (a login shell may point HF_HOME at a shared cache)
+export HF_HOME=${HF_HUB_DIR%/hub}; unset HF_HUB_CACHE HUGGINGFACE_HUB_CACHE
 CMD=${1:-}
 case $CMD in
 up) SETTING=${2:?usage: serve.sh up SETTING DIR}; DIR=${3:?usage: serve.sh up SETTING DIR}
