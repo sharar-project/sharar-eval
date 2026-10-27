@@ -26,8 +26,9 @@ deletes a backup chat template.
 ## 2. One-time setup on a Spark
 
 - Docker with the NVIDIA runtime, and your user in the `docker` group (`serve.sh` falls back to `sg docker`).
-- The checkpoint and draft at the pinned revisions in `~/.cache/huggingface/hub` (or `HF_HUB_DIR`):
-  `hf download <repo> --revision <revision>` for each row above. A snapshot downloaded by revision has no `refs/main`,
+- Nothing to download by hand: `serve.sh up` downloads a pinned checkpoint or draft that is not in
+  `~/.cache/huggingface/hub` (or `HF_HUB_DIR`), by revision (`hf`, or `uvx --from huggingface_hub hf` when `hf` is not
+  installed; all four are public). A snapshot downloaded by revision has no `refs/main`,
   which an offline server needs: `serve.sh up` writes one naming the pin, and refuses to start if `refs/main` names
   another revision.
 - Nothing else: the first `serve.sh up` clones the recipes to `$EUGR_DIR` (default `~/spark-vllm-docker-b62168e`) and

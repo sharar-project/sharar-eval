@@ -9,8 +9,9 @@
 #   --enable-prompt-tokens-details    cached-token counts in replies, for the suite's cache-hit check
 #   VLLM_SERVER_DEV_MODE=1            /reset_prefix_cache, the suite's flush before every burst
 #   HF_HUB_OFFLINE=1                  serve the cached, pinned revisions
-# The last three do not change decoding. A snapshot downloaded by revision has no refs/main, which an offline server
-# needs to find it: up writes one naming the pin, and refuses to start if refs/main names another revision.
+# The last three do not change decoding. A pinned checkpoint or draft that is not cached is downloaded first, by
+# revision. A snapshot downloaded by revision has no refs/main, which an offline server needs to find it: up writes one
+# naming the pin, and refuses to start if refs/main names another revision.
 set -u
 if ! docker info > /dev/null 2>&1 && [ -z "${SERVE_SG:-}" ]; then
   exec sg docker -c "SERVE_SG=1 bash $(printf '%q ' "$(readlink -f "$0")" "$@")"
@@ -39,9 +40,14 @@ if [ "$CMD" = down ]; then
   exit 0
 fi
 
-pin() {  # REPO REVISION: the pinned snapshot is cached and refs/main names it (written when missing)
+hf_cli() { if command -v hf > /dev/null; then hf "$@"; else uvx -q --from huggingface_hub hf "$@"; fi; }
+pin() {  # REPO REVISION: the pinned snapshot is cached (downloaded when missing) and refs/main names it (written when missing)
   local d=$HF_HUB_DIR/models--${1//\//--}
-  [ -d "$d/snapshots/$2" ] || die "$1@$2 is not in $HF_HUB_DIR: hf download $1 --revision $2"
+  if [ ! -d "$d/snapshots/$2" ]; then
+    log "downloading $1@$2 into $HF_HUB_DIR"
+    hf_cli download "$1" --revision "$2" > "$DIR/download.log" 2>&1 || die "could not download $1@$2 (see $DIR/download.log)"
+  fi
+  [ -d "$d/snapshots/$2" ] || die "$1@$2 is still not in $HF_HUB_DIR after downloading"
   if [ -f "$d/refs/main" ]; then
     [ "$(cat "$d/refs/main")" = "$2" ] || die "$d/refs/main names $(cat "$d/refs/main"), not the pinned $2"
   else
