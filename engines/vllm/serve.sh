@@ -35,6 +35,15 @@ docker info > /dev/null 2>&1 || die "no Docker access: add your user to the dock
 if [ "$CMD" = down ]; then
   rm -f "$FLAG"                                                   # ends the guard
   docker stop -t 60 "$CONTAINER" > /dev/null 2>&1; docker rm -f "$CONTAINER" > /dev/null 2>&1
+  # eugr's launcher mounts these caches of $HOME into the container, which runs as root: hand them back, or an engine run
+  # as this user on the same Spark cannot take its kernel-cache locks there (Sharar's b12x: PermissionError)
+  CACHES=(); for c in .cache/vllm .cache/flashinfer .cache/b12x .triton .tilelang; do [ -d "$HOME/$c" ] && CACHES+=(-v "$HOME/$c:/c/$c"); done
+  for img in "$IMAGE_REGULAR" "$IMAGE_B12X"; do
+    docker image inspect "$img" > /dev/null 2>&1 || continue
+    [ ${#CACHES[@]} -gt 0 ] && { docker run --rm "${CACHES[@]}" --entrypoint chown "$img" -R "$(id -u):$(id -g)" /c > /dev/null 2>&1 \
+      || log "could not hand $HOME's cache directories back from root"; }
+    break
+  done
   for i in $(seq 1 30); do gpu_idle && break; sleep 2; done
   log "vLLM stopped (GPU processes: [$(nvidia-smi --query-compute-apps=pid --format=csv,noheader | tr '\n' ' ')])"
   exit 0
