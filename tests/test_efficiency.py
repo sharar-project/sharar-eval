@@ -204,6 +204,16 @@ def test_warm_decode_stops_a_row_where_the_engine_queues_without_a_retry(tmp_pat
     stopped = json.loads((args.out / "warm" / "8k-low_entropy" / "stopped.json").read_text())
     assert stopped["n"] == 8 and stopped["reason"].startswith("decodes at most 4 of 8 at once")
 
+    # a request that missed the cache prefills while the rest decode, so it starts late: a miss, retried, not a queue
+    timed.clear()
+    monkeypatch.setattr(efficiency, "warm_summary", lambda art, n, want, count: {
+        **good, "requests": n, "peak_decoding": min(n, 7), "cache_hit_min": 1.0 if n < 8 else 0.0})
+    args.out = tmp_path / "miss"
+    assert efficiency.warm_decode(args) == 0
+    assert timed == [1, 4, 8, 8]
+    stopped = json.loads((args.out / "warm" / "8k-low_entropy" / "stopped.json").read_text())
+    assert stopped["reason"].startswith("cache hit 0% under 95%")
+
 
 def test_warm_decode_questions_average_bursts_of_different_prompts(tmp_path, monkeypatch):
     from evals import suite
