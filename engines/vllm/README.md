@@ -20,7 +20,8 @@ after the recipe's arguments, so they win:
 - `VLLM_SERVER_DEV_MODE=1`: `/reset_prefix_cache`, the suite's flush before every burst.
 - `HF_HUB_OFFLINE=1`: the cached, pinned revisions are served.
 
-The last three do not change decoding. Super's revision is the one Sharar pins; Hugging Face's later `da5b265` only
+The last three do not change decoding. For Bolt and Super each burst is primed twice (`PRIME_PASSES=2`): the recipes' Mamba
+shared-prefix checkpoints keep a prompt only once vLLM has seen it twice. Super's revision is the one Sharar pins; Hugging Face's later `da5b265` only
 deletes a backup chat template.
 
 ## 2. One-time setup on a Spark
