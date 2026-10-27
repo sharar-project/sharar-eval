@@ -34,7 +34,9 @@ mkdir -p "$OUT"; LOG=$OUT/run.log
 RESERVE_OWNER=${RESERVE_OWNER:-$ENGINE-baseline}
 reserve "$RESERVE_OWNER" "$ENGINE baseline, $SETTING, suite $SUITE"
 UP=0
-finish() { [ $UP = 1 ] && bash "$E/serve.sh" down "$OUT" >> "$LOG" 2>&1; touch "$OUT/.done"; release; }
+# down also when stopped while the engine was still starting: its serve.sh had launched it once it left a marker here
+finish() { { [ $UP = 1 ] || [ -e "$OUT/vllm.running" ] || [ -e "$OUT/sharar.pid" ]; } && bash "$E/serve.sh" down "$OUT" >> "$LOG" 2>&1
+  touch "$OUT/.done"; release; }
 trap finish EXIT
 rm -f "$OUT/.done"
 nohup bash "$HERE/dlog.sh" "$OUT/disk.log" 172800 "$OUT/.done" > /dev/null 2>&1 < /dev/null &
