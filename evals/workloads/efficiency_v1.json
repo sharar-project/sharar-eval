@@ -8,6 +8,12 @@
                       "questions": 32, "fixed_prompts": true, "min_bursts": 3, "balance": true, "exclude_sources": ["jetbrains_lca"],
                       "prompt_seed": 0, "min_hit": 0.6}
     },
+    "cross-engine-n4": {
+      "warm-decode": {"context": ["8k", "16k", "32k"], "categories": ["low_entropy"], "concurrency": [1, 2, 4],
+                      "output_tokens": 1024, "temperature": 1.0, "top_p": 0.95, "reasoning": "xhigh",
+                      "questions": 32, "fixed_prompts": true, "min_bursts": 3, "balance": true, "exclude_sources": ["jetbrains_lca"],
+                      "prompt_seed": 0, "min_hit": 0.6}
+    },
     "cross-engine-thinking-off": {
       "warm-decode": {"context": ["8k", "16k", "32k"], "categories": ["low_entropy"], "concurrency": [1, 2, 4, 8, 16, 32],
                       "output_tokens": 1024, "temperature": 1.0, "top_p": 0.95, "reasoning": "off",
