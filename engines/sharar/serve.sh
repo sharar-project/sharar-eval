@@ -7,6 +7,9 @@ set -u
 HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 . "$HERE/../common/defaults.env"; . "$HERE/../common/lib.sh"; . "$HERE/versions.env"
 export PATH=/usr/local/cuda/bin:$HOME/.local/bin:$PATH SHARAR_RESULTS PYTHONDONTWRITEBYTECODE=1
+# the checkpoints and the token for the private 3-bit copies are in this user's own cache (a login shell may point
+# HF_HOME at a shared one)
+export HF_HOME=${SHARAR_HF_HOME:-$HOME/.cache/huggingface}; unset HF_HUB_CACHE HUGGINGFACE_HUB_CACHE
 
 case ${1:-} in
 up)
