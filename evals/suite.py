@@ -25,7 +25,7 @@ its first), so an interrupted run resumes where it stopped and `full` reuses the
 `quick` wrote. A failed request is retried once without stopping the others. run.json records the label, the server's /get_server_info,
 the engine version given with --engine, this repository's commit, the sha256 of every dataset
 file read and each task's token cap; a later `run` into the same directory must match it.
-`--max-tokens N` replaces every task's cap for the run (GPQA's default is 8,192, MMLU-Pro's and IFEval's 4,096, LiveCodeBench's 32,768);
+`--max-tokens N` replaces every task's cap for the run (GPQA's default is 8,192, MMLU-Pro's and IFEval's 4,096, LiveCodeBench's 131,072);
 a capped answer scores as wrong, so a model that reasons longer loses items to the cap, not to its answers.
 
 Requests are greedy with thinking off unless the run asks otherwise, for every task but the needles and

@@ -3,7 +3,7 @@
 problems (112 AtCoder, stdin; 63 LeetCode, functional), in the dataset's order; `group` is the difficulty (80 hard, 52
 medium, 43 easy).
 
-    sharar-eval run --tasks lcb_v6 --thinking --max-tokens 131072 --label fast --out runs/fast-think
+    sharar-eval run --tasks lcb_v6 --thinking --label fast --out runs/fast-think
 
 Ported from LiveCodeBench (lcb_runner at 28fef95, MIT):
 - items: livecodebench/code_generation_lite@0fe84c3 (datasets.py pins it). release_v6 is test.jsonl ... test6.jsonl
@@ -39,7 +39,7 @@ from evals.accuracy_eval import ask
 from evals.datasets import ROOT
 
 FILE = "lcb/test6.jsonl"
-TASKS = {"lcb_v6": ([FILE], 32768)}  # task: (dataset files, default max_tokens)
+TASKS = {"lcb_v6": ([FILE], 131072)}  # task: (dataset files, default max_tokens): thinking runs need 128K, hard problems reason past 64K
 TIMEOUT = 6  # seconds per test (lcb_runner's --timeout default)
 MEMORY = 4 * 1024 ** 3
 EXEC = Path(__file__).resolve().parent / "lcb_exec.py"

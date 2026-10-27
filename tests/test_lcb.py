@@ -159,7 +159,7 @@ def test_run_sends_the_system_prompt_and_grades_the_reply_after_thinking(request
 
 
 def test_lcb_is_registered_pinned_and_in_no_suite():
-    assert suite.TASKS["lcb_v6"][0] is lcb and suite.task_max_tokens("lcb_v6") == 32768 and suite.task_files("lcb_v6") == ["lcb/test6.jsonl"]
+    assert suite.TASKS["lcb_v6"][0] is lcb and suite.task_max_tokens("lcb_v6") == 131072 and suite.task_files("lcb_v6") == ["lcb/test6.jsonl"]
     assert not any(name == "lcb_v6" for tasks in suite.SUITES.values() for name, _ in tasks)
     assert "lcb/test6.jsonl" in datasets.pins() and "0fe84c3912ea0c4d4a78037083943e8f0c4dd505" in datasets.FILES["lcb/test6.jsonl"]
 
