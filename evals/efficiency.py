@@ -388,7 +388,9 @@ def warm_burst(args, ctx, record, url, group, n, prompts, name, context, categor
     for attempt in range(2):
         try:  # these n prompts and nothing else in the cache
             flush(args, url)
-            run_aiperf(group / f"prime-{name}", rows(prompts, 1, True, f"{context}-{category}", record["sampling"]), 1, ctx)
+            for k in range(getattr(args, "prime_passes", 1)):  # an engine may keep a prompt only once it has seen it twice
+                run_aiperf(group / (f"prime-{name}" if k == 0 else f"prime{k + 1}-{name}"),
+                           rows(prompts, 1, True, f"{context}-{category}", record["sampling"]), 1, ctx)
         except Exception as exc:  # noqa: BLE001
             return None, f"priming failed: {exc}"
         try:
@@ -456,6 +458,7 @@ def warm_decode(args) -> int:
               "context": args.context, "categories": args.categories, "concurrency": args.concurrency,
               "output_tokens": args.output_tokens, "min_hit": args.min_hit, **({"questions": args.questions} if getattr(args, "questions", 1) > 1 else {}),
               **({"flush_cmd": args.flush_cmd} if getattr(args, "flush_cmd", None) else {}),
+              **({"prime_passes": args.prime_passes} if getattr(args, "prime_passes", 1) > 1 else {}),
               **({"balance": True, "exclude_sources": args.exclude_sources or [], "prompt_seed": args.prompt_seed}
                  if getattr(args, "balance", False) else {}), **({"fixed_prompts": True} if getattr(args, "fixed_prompts", False) else {}),
               **({"min_bursts": args.min_bursts} if getattr(args, "min_bursts", 1) > 1 else {}),
@@ -565,7 +568,8 @@ def prepare(args) -> int:
 SUITES = json.loads((bench.PACKAGE / "workloads" / "efficiency_v1.json").read_text())
 PARTS = ("warm-decode",)  # in run order
 DEFAULTS = {"warm-decode": {"min_hit": 0.95, "max_tokens_in_flight": None, "questions": 1, "balance": False, "exclude_sources": None, "prompt_seed": 0,
-                            "fixed_prompts": False, "min_bursts": 1, "flush_cmd": None}}  # what the mode's flags default to
+                            "fixed_prompts": False, "min_bursts": 1, "flush_cmd": None,
+                            "prime_passes": 1}}  # what the mode's flags default to
 
 
 def suite(args) -> int:
@@ -580,8 +584,9 @@ def suite(args) -> int:
         if options is None:
             continue
         print(f"\n== {args.suite}: {part}", flush=True)
-        flush_cmd = {"flush_cmd": args.flush_cmd} if part == "warm-decode" and getattr(args, "flush_cmd", None) else {}
-        ns = argparse.Namespace(**common, **{**DEFAULTS[part], **options, **flush_cmd}, out=args.out / part)  # the suite overrides defaults
+        engine_opts = {k: getattr(args, k) for k in ("flush_cmd", "prime_passes")
+                       if part == "warm-decode" and getattr(args, k, None) not in (None, 1)}  # how the engine caches, not what is measured
+        ns = argparse.Namespace(**common, **{**DEFAULTS[part], **options, **engine_opts}, out=args.out / part)  # the suite overrides defaults
         worst = max(worst, warm_decode(ns))
         if not bench.alive(args.url.rstrip("/")):
             print(f"the server at {args.url} stopped answering; the remaining parts are not run", file=sys.stderr)
@@ -653,6 +658,9 @@ def main() -> int:
     w.add_argument("--output-tokens", type=int, default=1024)
     add_sampling(w)
     w.add_argument("--min-hit", type=float, default=0.95, help="lowest cache hit a cell accepts (default 0.95)")
+    w.add_argument("--prime-passes", type=int, default=1,
+                   help="send each burst's prompts this many times before timing it (default 1): for an engine that keeps a "
+                        "prompt's cache only once it has seen it twice (vLLM's Nemotron recipes)")
     w.add_argument("--flush-cmd", help="shell command that empties the engine's prefix cache before each burst, for an "
                                        "engine with no flush endpoint (e.g. a restart); the server must answer again after it")
     w.add_argument("--questions", type=int, default=1,
@@ -690,6 +698,7 @@ def main() -> int:
     u.add_argument("--aiperf", help=f"AIPerf executable (default: uvx aiperf=={bench.SUITE['aiperf']})")
     u.add_argument("--no-checks", action="store_true", help="skip the pre-flight checks (sharar-eval check)")
     u.add_argument("--flush-cmd", help="warm-decode's --flush-cmd, for an engine without a flush endpoint")
+    u.add_argument("--prime-passes", type=int, default=1, help="warm-decode's --prime-passes, for an engine that caches a prompt only after seeing it more than once")
     r = sub.add_parser("report", help="tables of run directories")
     r.add_argument("runs", type=Path, nargs="+")
     r.add_argument("--recompute", action="store_true",

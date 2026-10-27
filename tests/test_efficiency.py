@@ -389,3 +389,36 @@ def test_report_of_a_suite_run_reports_its_parts(tmp_path, capsys):
 
 def test_every_suite_keeps_the_cache_hit_floor_vllm_needs():
     assert all(s["warm-decode"]["min_hit"] == 0.6 for s in efficiency.SUITES["suites"].values())
+
+
+def test_prime_passes_send_each_burst_more_than_once_before_timing(tmp_path, monkeypatch):
+    from evals import suite
+    from evals.speed import model
+    monkeypatch.setattr(model, "snapshot_dir", lambda snapshot=None: tmp_path)
+    monkeypatch.setattr(suite, "evals_tree", lambda: "test")
+    monkeypatch.setattr(bench, "alive", lambda url: True)
+    monkeypatch.setattr(bench, "describe", lambda url, engine: {})
+    monkeypatch.setattr(bench, "resolved", lambda name: None)
+    monkeypatch.setattr(bench, "aiperf_command", lambda a: ["aiperf"])
+    monkeypatch.setattr(bench, "flush", lambda url, engine: None)
+    monkeypatch.setattr(bench, "WORK", tmp_path / "work")
+    monkeypatch.setattr(efficiency, "speedbench_prompts", lambda c, k, n: [[{"role": "user", "content": str(i)}] for i in range(n)])
+    calls = []
+
+    def run_aiperf(cell, rows_, n, ctx, raw=False):
+        cell.mkdir(parents=True, exist_ok=True)
+        calls.append(cell.name)
+        return cell
+    monkeypatch.setattr(efficiency, "run_aiperf", run_aiperf)
+    monkeypatch.setattr(efficiency, "rows", lambda ps, *a: [{"messages": p} for p in ps])
+    monkeypatch.setattr(efficiency, "token_counter", lambda snapshot: None)
+    monkeypatch.setattr(efficiency, "warm_summary", lambda art, n, want, count: {
+        "requests": n, "errors": 0, "short": 0, "held_back": 0, "cache_hit_min": 1.0, "peak_decoding": n,
+        "aggregate_decode_tok_s": 10.0, "per_stream_tok_s_p50": 10.0, "window_share": 1.0})
+    args = argparse.Namespace(engine="openai", engine_version="x", url="http://x", model="m", snapshot=None, aiperf=None,
+                              out=tmp_path / "run", context=["8k"], categories=["low_entropy"], concurrency=[1],
+                              output_tokens=16, temperature=0.0, top_p=0.95, reasoning="off", min_hit=0.95, questions=1,
+                              prime_passes=2, max_tokens_in_flight=None, no_checks=True)
+    assert efficiency.warm_decode(args) == 0
+    assert calls == ["prime-c1", "prime2-c1", "c1"]
+    assert json.loads((args.out / "efficiency.json").read_text())["prime_passes"] == 2
