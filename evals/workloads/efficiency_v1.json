@@ -1,0 +1,34 @@
+{
+  "version": "efficiency-v1",
+  "about": "Named sets of sharar-eval efficiency runs: the same requests for every engine, which is only a URL. Each part's options are the mode's own flags.",
+  "suites": {
+    "cross-engine": {
+      "warm-decode": {"context": ["8k", "16k", "32k"], "categories": ["low_entropy"], "concurrency": [1, 2, 4, 8, 16, 32],
+                      "output_tokens": 1024, "temperature": 1.0, "top_p": 0.95, "reasoning": "xhigh",
+                      "questions": 32, "fixed_prompts": true, "min_bursts": 3, "balance": true, "exclude_sources": ["jetbrains_lca"],
+                      "prompt_seed": 0, "min_hit": 0.6}
+    },
+    "cross-engine-n4": {
+      "warm-decode": {"context": ["8k", "16k", "32k"], "categories": ["low_entropy"], "concurrency": [1, 2, 4],
+                      "output_tokens": 1024, "temperature": 1.0, "top_p": 0.95, "reasoning": "xhigh",
+                      "questions": 32, "fixed_prompts": true, "min_bursts": 3, "balance": true, "exclude_sources": ["jetbrains_lca"],
+                      "prompt_seed": 0, "min_hit": 0.6}
+    },
+    "cross-engine-n64": {
+      "warm-decode": {"context": ["8k", "16k", "32k"], "categories": ["low_entropy"], "concurrency": [64],
+                      "output_tokens": 1024, "temperature": 1.0, "top_p": 0.95, "reasoning": "xhigh",
+                      "questions": 64, "fixed_prompts": true, "min_bursts": 1, "balance": true, "exclude_sources": ["jetbrains_lca"],
+                      "prompt_seed": 0, "min_hit": 0.6}
+    },
+    "cross-engine-thinking-off": {
+      "warm-decode": {"context": ["8k", "16k", "32k"], "categories": ["low_entropy"], "concurrency": [1, 2, 4, 8, 16, 32],
+                      "output_tokens": 1024, "temperature": 1.0, "top_p": 0.95, "reasoning": "off",
+                      "questions": 32, "fixed_prompts": true, "min_bursts": 3, "balance": true, "exclude_sources": ["jetbrains_lca"],
+                      "prompt_seed": 0, "min_hit": 0.6}
+    },
+    "smoke": {
+      "warm-decode": {"context": ["8k"], "categories": ["low_entropy"], "concurrency": [1, 4], "output_tokens": 256,
+                      "temperature": 1.0, "top_p": 0.95, "reasoning": "xhigh", "min_hit": 0.6}
+    }
+  }
+}

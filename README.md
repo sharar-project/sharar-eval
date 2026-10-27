@@ -192,13 +192,29 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
         --out runs/efficiency/sharar-warm
     uv run sharar-eval efficiency aggregated-decode --engine vllm --engine-version "vllm 0.11" \
         --url http://127.0.0.1:8000 --tests code --concurrency 1,4,16,64 --slots 8 --out runs/efficiency/vllm-agg
-    uv run sharar-eval efficiency report runs/efficiency/sharar-warm runs/efficiency/vllm-agg
+    uv run sharar-eval efficiency suite --suite cross-engine --engine vllm --engine-version "vllm 0.11" \
+        --url http://127.0.0.1:8000 --out runs/cross-engine/vllm
+    uv run sharar-eval efficiency report runs/efficiency/sharar-warm runs/efficiency/vllm-agg runs/cross-engine/vllm
 
 - **`warm-decode`**: decode with every prompt already in the engine's cache, at a fixed context length. Prompts are
   SPEED-Bench's throughput split (1k-32k tokens; `low_entropy` = code completion from repositories and text sorting,
   `mixed` = needle-in-a-haystack and exam questions, `high_entropy` = book continuation and writing). Per (context,
   kind, N), the cache is flushed, the N prompts are sent one at a time with one output token so the engine caches
   them, then the same N are sent together, each forced to `--output-tokens` (default 1,024) with `ignore_eos`.
+  Sampling: by default the checkpoint's own, temperature 1.0, top-p 0.95, top-k 20, min-p 0, thinking on at reasoning
+  effort `xhigh`; `--temperature` (0 is greedy), `--top-p` and `--reasoning off|low|medium|xhigh` change it.
+  By default a cell times the first N prompts of the file. `--questions K` averages it instead: N requests run
+  ceil(K/N) bursts of N different prompts, each flushed, primed and timed on its own, and the cell reports their mean
+  (each burst under `rounds`). `--fixed-prompts` keeps every N on the same first K prompts (N above K is not run), and
+  `--min-bursts M` times each cell at least M times in whole passes over them. `--balance` draws the prompts evenly
+  from the kind's source datasets (low entropy: RepoBench Python, RepoBench Java, JetBrains Long Code Arena and
+  AdaLEval text sorting, whose shares in the file change with length; other kinds by sub-category): each source is
+  shuffled with `--prompt-seed` (default 0) and the sources are taken in turn, so every length gets the same mix.
+  `--exclude-sources` leaves sources out. An engine without a flush endpoint passes `--flush-cmd` (a restart) to empty
+  its cache before each burst. `--prime-passes 2` sends each burst's prompts twice before timing, for an engine
+  that keeps a prompt's cache only once it has seen it twice (vLLM's Nemotron recipes). Where the server reports speculation counters (Sharar's `/get_server_info`
+  `spec_stats`), each burst records the share of drafted tokens accepted and the tokens emitted per request per
+  verify round.
   Only the window in which all N decode is timed: from the last request's first token to the first request's last
   token, so neither prefill nor time to first token is in it. Reported per cell: aggregate decode tokens/s (tokens
   streamed in the window over its length), per-request decode tokens/s (median and slowest), the window's length
@@ -220,6 +236,16 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   up to 1,024 out) chosen by flags, N requests in flight as a closed loop. Reported: aggregate decode tokens/s
   (first token to last) and per-request tokens/s. `--slots` is the engine's batch or slot limit; above it requests
   queue and per-request speed would hide the wait, so the report prints "queued" there.
+- **`suite`**: every part of a named suite (`evals/workloads/efficiency_v1.json`) against one URL, into
+  `OUT/<part>`. `cross-engine`, the one comparison protocol: warm-decode at 8k, 16k and 32k, low entropy, N = 1-32,
+  1,024-token answers, on the same 32 prompts at every N (`--fixed-prompts`), drawn evenly from RepoBench Java,
+  RepoBench Python and text sorting (`--balance`, seed 0; JetBrains LCA left out: 6 prompts at 8k against 92 at 32k).
+  N = 1 runs 32 bursts of one and N = 32 a burst of all 32; every cell is timed at least three times in whole passes
+  (`--min-bursts 3`: N = 16 two passes, N = 32 three). Cache-hit floor 60% (vLLM's prefix cache keeps 80-95% of these
+  hybrid-model prompts). The checkpoint's own sampling (temperature 1.0, top-p 0.95, thinking at `xhigh`). `suite
+  --flush-cmd` passes warm-decode's. `cross-engine-thinking-off`: the same cells with thinking off (sampling unchanged).
+  `cross-engine-n4`: its N = 1, 2 and 4 cells only, for an engine setting that decodes at most 4 requests at once.
+  `smoke`: a few-minute check of an engine.
 - **Results.** `efficiency.json` holds the options (a rerun into the same directory must use the same ones and skips
   finished cells), `run.json` the engine, version, server description and dataset hashes, `checks.json` the
   pre-flight checks, and each cell AIPerf's exports with `cell.json` (`warm/<context>-<kind>/c<N>/` for warm-decode).
@@ -238,7 +264,7 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
 | `engine-matrix` | Sharar / SGLang / Atlas token-input matrix with attested output and cache counts |
 | `local`, `agent` | Frozen local-use requests (cache variants, mixed arrival, cancellation) and agent-shaped episodes |
 | `bench` | The bench suite above: `run`, `report`, `list` |
-| `efficiency` | Decode speed by mode, any engine: `warm-decode` (prompts already cached, decode-only window), `aggregated-decode` (short prompts, N in flight), `prepare`, `report` |
+| `efficiency` | Decode speed by mode, any engine: `warm-decode` (prompts already cached, decode-only window), `aggregated-decode` (short prompts, N in flight), `suite` (a named set of them), `prepare`, `report` |
 | `check` | Before a benchmark, whether the server honours the request features the benchmarks rely on, which an engine may accept and silently ignore. Every request is greedy with thinking off. Eight checks: no reasoning comes back with thinking off; a streamed reply with `stream_options.include_usage` carries integer token counts; `max_tokens` stops the reply with finish_reason `length`; `ignore_eos` gives exactly `max_tokens` tokens (efficiency warm-decode needs it); `top_k` / `min_p` are accepted; and a tool call has typed arguments (an integer and a JSON array), whole and streamed, and the reply after a tool result quotes it. PASS, FAIL or UNCHECKED with a reason; `--out` keeps them as JSON. Exit 0 all pass, 1 any fail or unchecked, 2 the server could not be reached |
 | `tbench` | Terminal-Bench 2.1 through Harbor: `oracle` once per machine. Runs go through `run`: `tbench` is the Terminus-2 agent on the server's endpoint; `tbench-claude-code` and `tbench-opencode` run those agents with native tool calls through a recording proxy, and each item carries the tool-call check of its traffic |
 | `accuracy` | GSM8K and MGSM (11 languages): exact match. HumanEval and MBPP: pass@1, sandboxed |
