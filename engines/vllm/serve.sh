@@ -10,6 +10,7 @@
 #   VLLM_SERVER_DEV_MODE=1            /reset_prefix_cache, the suite's flush before every burst
 #   HF_HUB_OFFLINE=1                  serve the cached, pinned revisions
 #   $VLLM_ARGS                        a setting's own changes to its recipe, last so they win (none by default)
+#   $VLLM_ENV (KEY=VALUE ...)         a setting's container environment, over the recipe's env (none by default)
 # The three above it do not change decoding. A pinned checkpoint or draft that is not cached is downloaded first, by
 # revision. A snapshot downloaded by revision has no refs/main, which an offline server needs to find it: up writes one
 # naming the pin, and refuses to start if refs/main names another revision.
@@ -78,10 +79,11 @@ docker rm -f "$CONTAINER" > /dev/null 2>&1                        # a stopped on
 if [ "${DROP_PAGE_CACHE:-0}" = 1 ]; then  # vLLM refuses to start when less is free than its memory share asks for
   sync; sudo -n sh -c "echo 3 > /proc/sys/vm/drop_caches" 2> /dev/null || log "could not drop the page cache (no passwordless sudo)"
 fi
+ENVS=(); for e in ${VLLM_ENV:-}; do ENVS+=(-e "$e"); done  # a setting's container environment, over the recipe's own
 touch "$FLAG"; guard_container "$CONTAINER" "$FLAG" "$DIR/guard.log"
 log "vLLM $SETTING: recipe $RECIPE at ${RECIPE_COMMIT:0:7}, image $IMAGE, max-num-seqs $MAX_NUM_SEQS${VLLM_ARGS:+, $VLLM_ARGS} ($(avail_gib) GiB free)"
 (cd "$EUGR_DIR" && ./run-recipe.sh "$RECIPE" --solo -d -t "$IMAGE" --name "$CONTAINER" --port "${URL##*:}" \
-   -e HF_HUB_OFFLINE=1 -e VLLM_SERVER_DEV_MODE=1 \
+   -e HF_HUB_OFFLINE=1 -e VLLM_SERVER_DEV_MODE=1 "${ENVS[@]}" \
    -- --max-num-seqs "$MAX_NUM_SEQS" --enable-prompt-tokens-details ${VLLM_ARGS:-}) > "$DIR/recipe.log" 2>&1 \
   || { rm -f "$FLAG"; docker rm -f "$CONTAINER" > /dev/null 2>&1; die "run-recipe.sh failed (see $DIR/recipe.log)"; }
 ( docker logs -f "$CONTAINER" > "$DIR/server.log" 2>&1 & )
