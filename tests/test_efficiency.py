@@ -316,6 +316,8 @@ def test_balanced_prompts_take_shuffled_sources_in_turn(tmp_path, monkeypatch):
     assert kinds == ["repobench_python", "textsort"] * 3 + ["repobench_python"] * 2  # in turn, a used-up source skipped
     assert len(set(got)) == 8 and got == [p[0]["content"] for p in efficiency.speedbench_prompts(
         "8k", "low_entropy", 8, balanced=True, exclude=("jetbrains_lca",))]  # same seed, same pick
+    fewer = [p[0]["content"] for p in efficiency.speedbench_prompts("8k", "low_entropy", 5, balanced=True, exclude=("jetbrains_lca",))]
+    assert got[:5] == fewer  # more questions extend the pick: cross-engine-n64's first 32 are cross-engine's 32
 
 
 def test_spec_delta_gives_per_request_acceptance():
