@@ -78,12 +78,14 @@ def apply_request_args(ap: argparse.ArgumentParser, args) -> None:
     THINKING.update(thinking=args.thinking, reasoning_effort=args.reasoning_effort, seed=args.seed)
 
 
-def ask(url: str, content: str, max_tokens: int, accept: tuple[int, float]) -> tuple[str, dict]:
-    """The reply (thinking removed) and the usage, with the thinking's last 400 characters as usage["reasoning_tail"]."""
+def ask(url: str, content: str, max_tokens: int, accept: tuple[int, float], system: str | None = None) -> tuple[str, dict]:
+    """The reply (thinking removed) and the usage, with the thinking's last 400 characters as usage["reasoning_tail"].
+    `system` goes first as a system message (LiveCodeBench's prompt has one); the seed comes from `content` alone."""
     kwargs = {"enable_thinking": THINKING["thinking"]}
     if THINKING["reasoning_effort"]:
         kwargs["reasoning_effort"] = THINKING["reasoning_effort"]
-    body = {"model": SERVER["model"], "messages": [{"role": "user", "content": content}], **SAMPLING, "max_tokens": max_tokens,
+    messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": content}]
+    body = {"model": SERVER["model"], "messages": messages, **SAMPLING, "max_tokens": max_tokens,
             "chat_template_kwargs": kwargs}
     if not SERVER["plain"]:
         body["trace"] = False

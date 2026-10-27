@@ -35,6 +35,7 @@ NLTK = f"{GH}/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages"
 NLTK_PACKAGES = ("tokenizers/punkt", "tokenizers/punkt_tab", "corpora/stopwords", "taggers/averaged_perceptron_tagger_eng")
 MMLU = "https://huggingface.co/datasets/cais/mmlu/resolve/c30699e8356da336a370243923dbaf21066bb9fe/all"
 HOTPOT = "https://huggingface.co/datasets/hotpotqa/hotpot_qa/resolve/1908d6afbbead072334abe2965f91bd2709910ab/distractor"
+LCB = "https://huggingface.co/datasets/livecodebench/code_generation_lite/resolve/0fe84c3912ea0c4d4a78037083943e8f0c4dd505"
 FILES = {  # dataset path: pinned source URL
     "accuracy/gsm8k_test.jsonl": f"{GH}/openai/grade-school-math/3101c7d5072418e28b9008a6636bde82a006892c/grade_school_math/data/test.jsonl",
     "accuracy/HumanEval.jsonl.gz": f"{GH}/openai/human-eval/6d43fb980f9fee3c892a914eda09951f772ad10d/data/HumanEval.jsonl.gz",
@@ -50,6 +51,8 @@ FILES = {  # dataset path: pinned source URL
     "ruler2/src/mmlu_auxiliary_train.parquet": f"{MMLU}/auxiliary_train-00000-of-00001.parquet",
     **{f"ruler2/src/hotpot_{n}.parquet": f"{HOTPOT}/{n}.parquet"
        for n in ("train-00000-of-00002", "train-00001-of-00002", "validation-00000-of-00001")},
+    # LiveCodeBench release_v6's last file: the 175 problems release_v6 added (evals/lcb.py)
+    "lcb/test6.jsonl": f"{LCB}/test6.jsonl",
     "long_context/tokenizer.json": "https://huggingface.co/RadixArk/Qwen3.8-27B-NVFP4/resolve/319f741cce68d7914884900c138a1fbb70a42f30/tokenizer.json",
 }
 # Needle corpus: CPython 3.12.7's Lib/*.py in path order, cut after the file that passes CORPUS_CHARS
