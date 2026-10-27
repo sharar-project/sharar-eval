@@ -8,7 +8,8 @@
 # ENGINE is a folder of engines/ (vllm, sharar); SETTING a file in its settings/ without .env, named after the model;
 # SUITE a suite of evals/workloads/efficiency_v1.json (default cross-engine; smoke for a few-minute check).
 # FLUSH_RESTART=1 restarts the engine before every warm-decode burst (sharar-eval's --flush-cmd), for an engine with
-# no cache flush endpoint; a setting's PRIME_PASSES (sharar-eval's --prime-passes) primes each burst more than once.
+# no cache flush endpoint; a setting's PRIME_PASSES (sharar-eval's --prime-passes) primes each burst more than once,
+# and its MIN_HIT (sharar-eval's --min-hit) lowers the cache-hit floor for an engine that caches only coarse checkpoints.
 # OUT=<an earlier run's directory> resumes it: finished cells are skipped.
 # Results: $OUT_ROOT/ENGINE/SETTING/<UTC time>-<host>/: run.log, the engine's logs, disk.log (SSD reads, GPU use, SM
 # clock, free memory every 2 s), sampling-probe.json, suite/ (sharar-eval's run directory) and report.txt.
@@ -55,7 +56,7 @@ log "sampling probe: $(sampling_probe "$URL" "$OUT/sampling-probe.json")"
 FLUSH=()
 [ "${FLUSH_RESTART:-0}" = 1 ] && FLUSH=(--flush-cmd "bash $E/serve.sh down $OUT >> $LOG 2>&1; bash $E/serve.sh up $SETTING $OUT >> $LOG 2>&1")
 (cd "$ROOT" && uv run -q sharar-eval efficiency suite --suite "$SUITE" --engine "$EVAL_ENGINE" --engine-version "$VERSION" \
-   --url "$URL" --out "$OUT/suite" "${FLUSH[@]}" ${PRIME_PASSES:+--prime-passes "$PRIME_PASSES"}) >> "$OUT/suite.txt" 2>&1 || log "the suite exited non-zero (see suite.txt)"
+   --url "$URL" --out "$OUT/suite" "${FLUSH[@]}" ${PRIME_PASSES:+--prime-passes "$PRIME_PASSES"} ${MIN_HIT:+--min-hit "$MIN_HIT"}) >> "$OUT/suite.txt" 2>&1 || log "the suite exited non-zero (see suite.txt)"
 (cd "$ROOT" && uv run -q sharar-eval efficiency report "$OUT/suite") > "$OUT/report.txt" 2>&1
 cat "$OUT/report.txt" >> "$LOG"
 log "done: $OUT"
