@@ -40,8 +40,8 @@ A cell whose requests fail or miss the cache (lowest hit under --min-hit) gets o
 again, the row stops there ("stopped": the engine recomputed prompts it could not keep cached at that N, which is a
 cache capacity limit, not a failure) and larger N are not run, nor are cells over --max-tokens-in-flight (N x context).
 A cell in which fewer than N requests were ever decoding at the same moment stops the row at once: the engine queued
-the rest (a batch, slot or memory admission limit), so it does not decode N together. The cache hit is checked first,
-since a request that recomputes its prompt also starts decoding late.
+the rest (a batch, slot or memory admission limit), so it does not decode N together. A queued request often loses its
+cached prompt while it waits (the running ones fill the cache), and the reason then says so.
 The engine must already be serving at --url; nothing here starts or stops it. It needs prefix caching, and should report
 cached prompt tokens (usage.prompt_tokens_details.cached_tokens): without them the hit column is "-" and nothing
 confirms prefill was skipped. A flush endpoint (--engine) is optional.
@@ -410,10 +410,12 @@ def warm_burst(args, ctx, record, url, group, n, prompts, name, context, categor
         hit = summary.get("cache_hit_min")
         if summary["errors"] or summary["requests"] < n:
             reason = f"{summary['errors']} of {n} requests failed"
-        elif hit is not None and hit < args.min_hit:  # before the queue check: a request that recomputes its prompt starts late
-            reason = f"cache hit {hit:.0%} under {args.min_hit:.0%}: the primed prompts did not stay cached"
         elif summary.get("peak_decoding", n) < n:  # an engine limit: a retry would queue the same way
-            return summary, f"decodes at most {summary['peak_decoding']} of {n} at once: the engine queued the rest"
+            lost = (f"; the queued requests lost their cached prompts while waiting (lowest hit {hit:.0%})"
+                    if hit is not None and hit < args.min_hit else "")
+            return summary, f"decodes at most {summary['peak_decoding']} of {n} at once: the engine queued the rest{lost}"
+        elif hit is not None and hit < args.min_hit:
+            reason = f"cache hit {hit:.0%} under {args.min_hit:.0%}: the primed prompts did not stay cached"
         elif summary["short"]:
             reason = f"{summary['short']} of {n} answers came back short of {args.output_tokens} tokens (ignore_eos not honoured?)"
         else:
