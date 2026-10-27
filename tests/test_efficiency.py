@@ -375,3 +375,17 @@ def test_flush_cmd_runs_the_command_instead_of_the_flush_endpoint(tmp_path, monk
     assert marker.read_text() == "once\n" and calls == []
     efficiency.flush(argparse.Namespace(engine="sharar", flush_cmd=None), "http://x")
     assert calls == ["endpoint"]
+
+
+def test_report_of_a_suite_run_reports_its_parts(tmp_path, capsys):
+    run = tmp_path / "suite"
+    (run / "warm-decode" / "warm").mkdir(parents=True)
+    (run / "suite.json").write_text("{}")
+    (run / "warm-decode" / "efficiency.json").write_text(json.dumps({"mode": "warm-decode"}))
+    (run / "warm-decode" / "run.json").write_text(json.dumps({"engine": "vllm", "engine_version": "x", "output_tokens": 16}))
+    assert efficiency.report(argparse.Namespace(runs=[run], recompute=False)) == 0
+    assert "engine vllm (x), warm decode" in capsys.readouterr().out
+
+
+def test_every_suite_keeps_the_cache_hit_floor_vllm_needs():
+    assert all(s["warm-decode"]["min_hit"] == 0.6 for s in efficiency.SUITES["suites"].values())
