@@ -62,6 +62,26 @@ def test_level_runs_copies_past_the_task_count_each_under_its_own_namespace(tmp_
     assert s["tasks"] == 4 and s["turns"] == 10 and s["failed_turns"] == 0 and s["output_tokens"] == 2 * (5 + 6 + 7 + 5 + 6)
 
 
+def test_sessions_keep_every_conversation_open_and_serve_the_longest_waiting_first(tmp_path, server):
+    url, log = server
+    tasks = ar.load_tasks(replay_dir(tmp_path))
+    out = tmp_path / "agents.jsonl"
+    a = argparse.Namespace(url=url, model="mock-model", label="t", tool_mode="none", sessions=4)
+    with out.open("a") as f:
+        lv = ar.level(a, tasks, 2, f, random.Random(0))  # 2 agents over 4 conversations (2 copies of 2 tasks)
+    assert lv["sessions"] == 4 and lv["tasks"] == 4 and lv["turns"] == 10 and lv["failed_turns"] == 0
+    turns = sorted((json.loads(line) for line in out.read_text().splitlines()), key=lambda t: t["t0"])
+    assert all(t["sessions"] == 4 for t in turns)
+    assert [t["turn"] for t in turns[:4]] == [0, 0, 0, 0]  # every conversation's first turn before any second one
+    assert {(t["task"], t["copy"]) for t in turns[:4]} == {("t0", 0), ("t1", 0), ("t0", 1), ("t1", 1)}
+    assert [t["turn"] for t in turns[4:8]] == [1, 1, 1, 1] and [t["turn"] for t in turns[8:]] == [2, 2]
+    for key in {(t["task"], t["copy"]) for t in turns}:  # a conversation's turns stay in order, one at a time
+        own = [t for t in turns if (t["task"], t["copy"]) == key]
+        assert [t["turn"] for t in own] == list(range(len(own)))
+        assert all(x["end"] <= y["t0"] for x, y in zip(own, own[1:]))
+    assert len({json.loads(line)["first"] for line in log.read_text().splitlines()}) == 2  # one namespace per copy
+
+
 def test_check_and_summarize_apply_agentperfs_acceptance_rule():
     row = {"target_output_tokens": 10, "tools": TOOLS}
     ok = {"done": True, "completion_tokens": 10, "finish": "tool_calls", "tool_calls": [{"name": "bash", "arguments": "{"}]}

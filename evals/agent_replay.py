@@ -17,6 +17,10 @@ and 5 OpenClaw assistant tasks, 168 model turns, contexts up to ~56k tokens; pin
 - tool time: none by default (tool_mode "recorded" sleeps the recorded tool durations after each turn).
 Added for many agents: N agents run at once, each taking the next task when its own ends (closed loop); the 8 tasks
 run once at N <= 8, and copies run at N > 8 (each copy under its own namespace, so copies share nothing).
+Sessions (optional, `sessions`): S conversations are open at once (the tasks' copies, each under its own namespace)
+and the N agents take turns from them: an agent sends the next turn of the conversation that has waited longest, then
+puts that conversation at the back of the line. Every conversation then sits idle while the others' turns run, as a
+real agent's does during its tool calls and its user's reading, so the open contexts can outgrow the engine's cache.
 Deviation: thinking is turned off (chat_template_kwargs enable_thinking false), so all engines run the same template
 whatever their default.
 
@@ -139,33 +143,65 @@ def check(r, row):
 def level(a, tasks, n, log, rng):
     """One level: n agents at once over the tasks (copies past 8). `a` carries url, model, label and tool_mode; every
     turn is appended to `log` as it ends, and the level's record is returned."""
-    copies = max(1, math.ceil(n / len(tasks)))
+    sessions = getattr(a, "sessions", None)
+    copies = max(1, math.ceil((sessions or n) / len(tasks)))
     queue = [(c, t) for c in range(copies) for t in tasks]
     ns = {c: namespace(rng) for c in range(copies)}  # one per copy: tasks of a copy share like agentperf's run does
     lock = threading.Lock(); episodes = []
 
-    def agent(slot):
+    def turn(slot, copy, task, row):
+        r = turn_request(a.url, a.model, row, ns[copy])
+        r["faults"] = check(r, row)
+        r.update(task=task["task_id"], copy=copy, agent=slot, turn=row["conversation_idx"],
+                 target=row["target_output_tokens"], recorded_prompt=row["recorded_prompt_tokens"])
+        if sessions:
+            r["sessions"] = sessions
+        with lock:
+            log.write(json.dumps({"kind": "agent_turn", "label": a.label, "agents": n, **r}) + "\n"); log.flush()
+        if a.tool_mode == "recorded" and row.get("simulated_tool_delay_ms_after"):
+            time.sleep(row["simulated_tool_delay_ms_after"] / 1000)
+        return r
+
+    if sessions:  # S open conversations, N agents taking the next turn of the one that waited longest
+        line = collections.deque({"copy": c, "task": t, "next": 0, "turns": []} for c, t in queue[:sessions])
+        open_ = len(line); ready = threading.Condition(lock)
+
+        def agent(slot):
+            nonlocal open_
+            while True:
+                with ready:
+                    while not line and open_:
+                        ready.wait()
+                    if not line:
+                        return
+                    conv = line.popleft()
+                row = conv["task"]["rows"][conv["next"]]
+                conv["turns"].append(turn(slot, conv["copy"], conv["task"], row))
+                conv["next"] += 1
+                with ready:
+                    if conv["next"] < len(conv["task"]["rows"]):
+                        line.append(conv)
+                    else:
+                        open_ -= 1
+                        ts = conv["turns"]
+                        episodes.append({"task": conv["task"]["task_id"], "copy": conv["copy"], "turns": ts,
+                                         "seconds": max(t["end"] for t in ts) - min(t["t0"] for t in ts)})
+                    ready.notify_all()
+    else:
+        agent = None
+
+    def one_task_each(slot):
         while True:
             with lock:
                 if not queue:
                     return
                 copy, task = queue.pop(0)
-            t_start = time.time(); turns = []
-            for row in task["rows"]:
-                r = turn_request(a.url, a.model, row, ns[copy])
-                r["faults"] = check(r, row)
-                r.update(task=task["task_id"], copy=copy, agent=slot, turn=row["conversation_idx"],
-                         target=row["target_output_tokens"], recorded_prompt=row["recorded_prompt_tokens"])
-                turns.append(r)
-                with lock:
-                    log.write(json.dumps({"kind": "agent_turn", "label": a.label, "agents": n, **r}) + "\n"); log.flush()
-                if a.tool_mode == "recorded" and row.get("simulated_tool_delay_ms_after"):
-                    time.sleep(row["simulated_tool_delay_ms_after"] / 1000)
+            t_start = time.time(); turns = [turn(slot, copy, task, row) for row in task["rows"]]
             with lock:
                 episodes.append({"task": task["task_id"], "copy": copy, "seconds": time.time() - t_start, "turns": turns})
 
     t0 = time.time()
-    th = [threading.Thread(target=agent, args=(i,)) for i in range(n)]
+    th = [threading.Thread(target=agent or one_task_each, args=(i,)) for i in range(n)]
     [x.start() for x in th]; [x.join() for x in th]
     wall = time.time() - t0
     turns = [t for e in episodes for t in e["turns"]]
@@ -176,7 +212,8 @@ def level(a, tasks, n, log, rng):
     out_tokens = sum(t["completion_tokens"] or 0 for t in ok)
     prompt = sum(t["prompt_tokens"] or 0 for t in ok); cached = [t["cached_tokens"] for t in ok if t["cached_tokens"] is not None]
     ttft = [1000 * (t["first"] - t["t0"]) for t in ok]; e2e = [1000 * (t["end"] - t["t0"]) for t in ok]
-    return {"kind": "agent_level", "label": a.label, "agents": n, "tasks": len(episodes), "turns": len(turns),
+    return {"kind": "agent_level", "label": a.label, "agents": n, **({"sessions": sessions} if sessions else {}),
+            "tasks": len(episodes), "turns": len(turns),
             "wall_s": wall, "aggregate_tok_s": out_tokens / wall if wall else None,
             "output_tokens_per_second": sum(k - 1 for k, _ in win) / sum(s for _, s in win) if win else None,
             "e2e_output_tokens_per_second": out_tokens / sum(t["end"] - t["t0"] for t in ok) if ok else None,
