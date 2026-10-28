@@ -87,7 +87,9 @@ log "vLLM $SETTING: recipe $RECIPE at ${RECIPE_COMMIT:0:7}, image $IMAGE, max-nu
    -- --max-num-seqs "$MAX_NUM_SEQS" --enable-prompt-tokens-details ${VLLM_ARGS:-}) > "$DIR/recipe.log" 2>&1 \
   || { rm -f "$FLAG"; docker rm -f "$CONTAINER" > /dev/null 2>&1; die "run-recipe.sh failed (see $DIR/recipe.log)"; }
 ( docker logs -f "$CONTAINER" > "$DIR/server.log" 2>&1 & )
-if ! wait_health "$URL" "$START_TIMEOUT_S" "docker ps -q -f name=^$CONTAINER\$ | grep -q ."; then
+# alive while the container runs and its engine has not failed: the API server outlives a failed engine start (too
+# little free memory for the memory share, a bad flag), so waiting on the container alone ran to the timeout
+if ! wait_health "$URL" "$START_TIMEOUT_S" "docker ps -q -f name=^$CONTAINER\$ | grep -q . && ! grep -aq 'Engine core initialization failed' '$DIR/server.log'"; then
   log "vLLM $SETTING did not start: $(tail -5 "$DIR/server.log" | tr '\n' ' ' | cut -c1-300)"
   rm -f "$FLAG"; docker rm -f "$CONTAINER" > /dev/null 2>&1; exit 1
 fi
