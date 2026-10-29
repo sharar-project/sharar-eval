@@ -97,7 +97,7 @@ def turn_request(url, model, row, ns, timeout=3600, thinking="server", tool_choi
     except Exception as e:  # noqa: BLE001
         return {"t0": t0, "end": time.time(), "error": f"{type(e).__name__}: {e}"[:300]}
     end = time.time()
-    first = last = None; usage = {}; finish = None; text = []; calls = {}; done = False; chunks = 0
+    first = last = None; usage = {}; finish = None; text = []; reasoning = 0; calls = {}; done = False; chunks = 0
     for ts, line in lines:
         line = line.decode(errors="replace").strip()
         if not line.startswith("data:"):
@@ -112,7 +112,9 @@ def turn_request(url, model, row, ns, timeout=3600, thinking="server", tool_choi
         ch = (c.get("choices") or [{}])[0]
         finish = ch.get("finish_reason") or finish
         d = ch.get("delta") or {}
-        visible = (d.get("content") or "") + (d.get("reasoning_content") or "") + (d.get("reasoning") or "")
+        thought = (d.get("reasoning_content") or "") + (d.get("reasoning") or "")
+        reasoning += len(thought)
+        visible = (d.get("content") or "") + thought
         for tc in d.get("tool_calls") or []:
             slot = calls.setdefault(tc.get("index", 0), {"name": "", "arguments": ""})
             fn = tc.get("function") or {}
@@ -123,7 +125,7 @@ def turn_request(url, model, row, ns, timeout=3600, thinking="server", tool_choi
     return {"t0": t0, "end": end, "first": first, "last": last, "finish": finish, "done": done, "chunks": chunks,
             "completion_tokens": usage.get("completion_tokens"), "prompt_tokens": usage.get("prompt_tokens"),
             "cached_tokens": (usage.get("prompt_tokens_details") or {}).get("cached_tokens"),
-            "tool_calls": list(calls.values()), "text_chars": len("".join(text))}
+            "tool_calls": list(calls.values()), "text_chars": len("".join(text)), "reasoning_chars": reasoning}
 
 
 def check(r, row):
