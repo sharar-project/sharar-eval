@@ -166,3 +166,24 @@ def test_thinking_and_tool_choice_are_sent_only_when_asked(tmp_path, server):
     sent = [json.loads(line) for line in log.read_text().splitlines()]
     assert [(r["chat_template_kwargs"], r["tool_choice"]) for r in sent] == \
         [({"enable_thinking": False}, None), ({"enable_thinking": True}, "none")]
+
+
+def test_steady_level_keeps_s_conversations_open_with_n_requests_in_flight(tmp_path, server):
+    url, log = server
+    tasks = ar.load_tasks(replay_dir(tmp_path, turns=(4, 3)))
+    out = tmp_path / "agents.jsonl"
+    a = argparse.Namespace(url=url, model="mock-model", label="t", tool_mode="recorded")
+    with out.open("a") as f:
+        lv = ar.steady_level(a, tasks, 5, 2, f, random.Random(0), duration=1.5)
+    recs = [json.loads(line) for line in out.read_text().splitlines()]
+    turns = [r for r in recs if r["kind"] == "agent_turn"]; primes = [r for r in recs if r["kind"] == "agent_prime"]
+    assert lv["agents"] == 5 and lv["inflight"] == 2 and lv["turns"] == len(turns) > 5 and lv["failed_turns"] == 0
+    assert all(r["agents"] == 5 and r["inflight"] == 2 and r["open_ctx"] >= r["recorded_prompt"] for r in turns)
+    # at most n requests overlap
+    edges = sorted([(r["t0"], 1) for r in turns] + [(r["end"], -1) for r in turns])
+    live = peak = 0
+    for _, d in edges:
+        live += d; peak = max(peak, live)
+    assert peak <= 2
+    assert len(primes) == sum(1 for r in primes)  # primes are recorded apart and not measured
+    assert lv["tasks"] >= 1  # conversations that ended were replaced

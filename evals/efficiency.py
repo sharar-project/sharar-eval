@@ -596,6 +596,7 @@ def agent_replay(args) -> int:
     record = {"mode": "agent-replay", "engine": args.engine, "engine_version": args.engine_version, "model": model,
               "label": label, "agents": args.agents, "tool_mode": args.tool_mode,
               "thinking": args.thinking, "tool_choice": args.tool_choice,
+              **({"inflight": args.inflight, "duration_s": args.duration, "primed": not args.no_prime} if args.inflight else {}),
               **({"sessions": args.sessions} if args.sessions else {}),
               "replay": str(args.replay) if args.replay else "agentperf-default-v1"}
     args.out.mkdir(parents=True, exist_ok=True)
@@ -624,7 +625,9 @@ def agent_replay(args) -> int:
         path.write_text("".join(json.dumps(r) + "\n" for r in keep))
     print(f"{label} @ {url}: agentperf-default-v1, {len(tasks)} tasks, {sum(len(t['rows']) for t in tasks)} turns, "
           f"exact output lengths, thinking {args.thinking}, tool_choice {args.tool_choice}, tool time {args.tool_mode}"
-          + (f", {args.sessions} conversations open, agents taking turns" if args.sessions else ""), flush=True)
+          + (f", {args.sessions} conversations open, agents taking turns" if args.sessions else "")
+          + (f", steady state: --agents open, {args.inflight} requests in flight, {args.duration:.0f} s per level"
+             if args.inflight else ""), flush=True)
     print(REPLAY_HEADER, flush=True)
     rows_ = {r["agents"]: r for r in ar.summarize(keep) if r["label"] == label}
     for n in args.agents:
@@ -634,7 +637,8 @@ def agent_replay(args) -> int:
         a = argparse.Namespace(url=url, model=model, label=label, tool_mode=args.tool_mode, sessions=args.sessions,
                                thinking=args.thinking, tool_choice=args.tool_choice)
         with path.open("a") as log:
-            lv = ar.level(a, tasks, n, log, random.Random(f"{seed}/{n}"))
+            lv = (ar.steady_level(a, tasks, n, args.inflight, log, random.Random(f"{seed}/{n}"), args.duration,
+                                  prime=not args.no_prime) if args.inflight else ar.level(a, tasks, n, log, random.Random(f"{seed}/{n}")))
             log.write(json.dumps(lv) + "\n")
         summary = [r for r in ar.summarize(read_records(path)) if r["label"] == label and r["agents"] == n][0]
         print(replay_row(summary), flush=True)
@@ -682,7 +686,7 @@ DEFAULTS = {"warm-decode": {"min_hit": 0.95, "max_tokens_in_flight": None, "ques
                             "fixed_prompts": False, "min_bursts": 1, "flush_cmd": None,
                             "prime_passes": 1},
             "agent-replay": {"label": None, "replay": None, "seed": None, "sessions": None, "thinking": "server",
-                             "tool_choice": "none"}}  # what the mode's flags default to
+                             "tool_choice": "none", "inflight": None, "duration": 900, "no_prime": False}}  # what the mode's flags default to
 
 
 def suite(args) -> int:
@@ -844,6 +848,10 @@ def main() -> int:
     a.add_argument("--tool-choice", choices=("none", "unset"), default="none",
                    help="none: tool_choice none with the tools, no tool-call grammar (agentperf-local --tool-choice none, "
                    "NVIDIA's DGX Spark result); unset: send no tool_choice (agentperf-local's default)")
+    a.add_argument("--inflight", type=int, help="steady state: each --agents value is the open agents (conversations), "
+                   "at most this many requests in flight, for --duration seconds each (agent_replay.steady_level)")
+    a.add_argument("--duration", type=float, default=900, help="with --inflight: seconds of turns per level")
+    a.add_argument("--no-prime", action="store_true", help="with --inflight: start every conversation cold at turn 0")
     a.add_argument("--sessions", type=int, help="conversations open at once (task copies), the agents taking turns from "
                    "them, longest-waiting first (default: each agent runs one task to its end)")
     a.add_argument("--label", help="the records' label (default: --engine)")

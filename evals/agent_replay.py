@@ -239,6 +239,94 @@ def level(a, tasks, n, log, rng):
             "finishes": dict(sorted(collections.Counter(str(t.get("finish")) for t in ok).items()))}
 
 
+def steady_level(a, tasks, s, n, log, rng, duration, prime=True):
+    """Steady state with the agent count decoupled from the server's load: s conversations (agents) open, at most n
+    requests in flight. Each in-flight slot sends the next turn of the ready conversation that has waited longest; a
+    conversation is ready when its last turn ended plus, with tool_mode "recorded", its recorded tool time. The s
+    conversations start at random turns of their tasks (cycling the tasks), each primed with the turn before its start
+    (max_tokens 1, not measured), so the open context begins near its steady size; a conversation that ends is replaced
+    by a new one at turn 0 of the next task. Turns are sent for `duration` seconds; each turn records the open context
+    (its conversation's prompt plus every other open conversation's last prompt and reply) when it was sent."""
+    lock = threading.Condition(); made = [0]; kind = {"thinking": getattr(a, "thinking", "server"),
+                                                       "tool_choice": getattr(a, "tool_choice", "none")}
+
+    def new_conv(start=0):
+        i = made[0]; made[0] += 1
+        task = tasks[i % len(tasks)]
+        return {"id": i, "task": task, "next": start, "ns": namespace(rng), "ready": 0.0, "since": 0.0,
+                "ctx": task["rows"][start - 1]["recorded_prompt_tokens"] + task["rows"][start - 1]["target_output_tokens"]
+                if start else 0, "busy": False}
+
+    convs = [new_conv(rng.randrange(len(tasks[i % len(tasks)]["rows"]))) for i in range(s)]
+    if prime:  # the turn before each start, so the first measured turn finds its history as a running agent would
+        todo = [c for c in convs if c["next"] > 0]
+
+        def primer():
+            while True:
+                with lock:
+                    if not todo:
+                        return
+                    c = todo.pop()
+                row = dict(c["task"]["rows"][c["next"] - 1], target_output_tokens=1)
+                r = turn_request(a.url, a.model, row, c["ns"], **kind)
+                with lock:
+                    log.write(json.dumps({"kind": "agent_prime", "label": a.label, "agents": s, "conv": c["id"],
+                                          "task": c["task"]["task_id"], "turn": c["next"] - 1, "t0": r["t0"], "end": r["end"],
+                                          "prompt_tokens": r.get("prompt_tokens"), "cached_tokens": r.get("cached_tokens"),
+                                          **({"error": r["error"]} if "error" in r else {})}) + "\n"); log.flush()
+        th = [threading.Thread(target=primer) for _ in range(n)]
+        [x.start() for x in th]; [x.join() for x in th]
+    t_start = time.time(); stop = t_start + duration; turns = []; finished = []
+    for c in convs:
+        c["since"] = t_start
+
+    def slot(k):
+        while True:
+            with lock:
+                while True:
+                    now = time.time()
+                    if now >= stop:
+                        return
+                    ready = [c for c in convs if not c["busy"] and c["ready"] <= now]
+                    if ready:
+                        c = min(ready, key=lambda c: c["since"]); break
+                    waits = [c["ready"] for c in convs if not c["busy"]]
+                    lock.wait(timeout=max(0.01, min(min(waits) - now if waits else 0.5, stop - now)))
+                c["busy"] = True
+                row = c["task"]["rows"][c["next"]]
+                open_ctx = sum(x["ctx"] for x in convs if x is not c) + row["recorded_prompt_tokens"]
+            r = turn_request(a.url, a.model, row, c["ns"], **kind)
+            r["faults"] = check(r, row)
+            r.update(task=c["task"]["task_id"], copy=c["id"], agent=k, turn=row["conversation_idx"], sessions=s,
+                     inflight=n, target=row["target_output_tokens"], recorded_prompt=row["recorded_prompt_tokens"],
+                     open_ctx=open_ctx, waited=r["t0"] - c["since"])
+            with lock:
+                log.write(json.dumps({"kind": "agent_turn", "label": a.label, "agents": s, **r}) + "\n"); log.flush()
+                turns.append(r)
+                c["ctx"] = (r.get("prompt_tokens") or row["recorded_prompt_tokens"]) + (r.get("completion_tokens") or 0)
+                c["next"] += 1; c["busy"] = False
+                delay = (row.get("simulated_tool_delay_ms_after") or 0) if a.tool_mode == "recorded" else 0
+                c["ready"] = c["since"] = r.get("end", time.time()) + delay / 1000
+                if c["next"] >= len(c["task"]["rows"]):
+                    finished.append(c["id"]); convs[convs.index(c)] = nc = new_conv(0); nc["since"] = time.time()
+                lock.notify_all()
+
+    th = [threading.Thread(target=slot, args=(k,)) for k in range(n)]
+    [x.start() for x in th]; [x.join() for x in th]
+    wall = time.time() - t_start
+    ok = [t for t in turns if "error" not in t and t.get("first")]
+    prompt = sum(t["prompt_tokens"] or 0 for t in ok); cached = [t["cached_tokens"] for t in ok if t["cached_tokens"] is not None]
+    ttft = [1000 * (t["first"] - t["t0"]) for t in ok]
+    out_tokens = sum(t["completion_tokens"] or 0 for t in ok)
+    return {"kind": "agent_level", "label": a.label, "agents": s, "sessions": s, "inflight": n, "steady": True,
+            "duration_s": duration, "primed": bool(prime), "tasks": len(finished), "turns": len(turns), "wall_s": wall,
+            "aggregate_tok_s": out_tokens / wall if wall else None, "ttft_p50_ms": pct(ttft, 0.5), "ttft_p95_ms": pct(ttft, 0.95),
+            "tasks_per_hour": 3600 * len(finished) / wall if wall else None,
+            "cache_share": sum(cached) / prompt if cached and prompt else None, "output_tokens": out_tokens,
+            "prompt_tokens": prompt, "failed_turns": sum(bool(t["faults"]) for t in turns), "tool_mode": a.tool_mode,
+            "open_ctx_p50": pct([t["open_ctx"] for t in turns], 0.5)}
+
+
 def summarize(records: list[dict]) -> list[dict]:
     """Per (label, agents) level, from the turn records and the level's wall time (engine-bench's agentsum.py): task
     time is first turn sent to last turn ended, so tool time after a task's last turn is not counted."""
