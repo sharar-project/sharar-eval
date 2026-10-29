@@ -27,7 +27,7 @@
                       "prompt_seed": 0, "min_hit": 0.6}
     },
     "cross-engine-agents": {
-      "agent-replay": {"agents": [1, 8, 16, 32], "tool_mode": "none"}
+      "agent-replay": {"agents": [1, 8, 16, 32], "tool_mode": "none", "thinking": "off", "tool_choice": "unset"}
     },
     "smoke": {
       "warm-decode": {"context": ["8k"], "categories": ["low_entropy"], "concurrency": [1, 4], "output_tokens": 256,

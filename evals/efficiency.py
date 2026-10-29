@@ -595,6 +595,7 @@ def agent_replay(args) -> int:
     label = args.label or args.engine
     record = {"mode": "agent-replay", "engine": args.engine, "engine_version": args.engine_version, "model": model,
               "label": label, "agents": args.agents, "tool_mode": args.tool_mode,
+              "thinking": args.thinking, "tool_choice": args.tool_choice,
               **({"sessions": args.sessions} if args.sessions else {}),
               "replay": str(args.replay) if args.replay else "agentperf-default-v1"}
     args.out.mkdir(parents=True, exist_ok=True)
@@ -622,7 +623,7 @@ def agent_replay(args) -> int:
     if len(keep) != len(records):
         path.write_text("".join(json.dumps(r) + "\n" for r in keep))
     print(f"{label} @ {url}: agentperf-default-v1, {len(tasks)} tasks, {sum(len(t['rows']) for t in tasks)} turns, "
-          f"exact output lengths, tool time {args.tool_mode}"
+          f"exact output lengths, thinking {args.thinking}, tool_choice {args.tool_choice}, tool time {args.tool_mode}"
           + (f", {args.sessions} conversations open, agents taking turns" if args.sessions else ""), flush=True)
     print(REPLAY_HEADER, flush=True)
     rows_ = {r["agents"]: r for r in ar.summarize(keep) if r["label"] == label}
@@ -630,7 +631,8 @@ def agent_replay(args) -> int:
         if n in done:
             print(replay_row(rows_[n]), "(done)", flush=True)
             continue
-        a = argparse.Namespace(url=url, model=model, label=label, tool_mode=args.tool_mode, sessions=args.sessions)
+        a = argparse.Namespace(url=url, model=model, label=label, tool_mode=args.tool_mode, sessions=args.sessions,
+                               thinking=args.thinking, tool_choice=args.tool_choice)
         with path.open("a") as log:
             lv = ar.level(a, tasks, n, log, random.Random(f"{seed}/{n}"))
             log.write(json.dumps(lv) + "\n")
@@ -679,7 +681,8 @@ PARTS = ("warm-decode", "agent-replay")  # in run order
 DEFAULTS = {"warm-decode": {"min_hit": 0.95, "max_tokens_in_flight": None, "questions": 1, "balance": False, "exclude_sources": None, "prompt_seed": 0,
                             "fixed_prompts": False, "min_bursts": 1, "flush_cmd": None,
                             "prime_passes": 1},
-            "agent-replay": {"label": None, "replay": None, "seed": None, "sessions": None}}  # what the mode's flags default to
+            "agent-replay": {"label": None, "replay": None, "seed": None, "sessions": None, "thinking": "server",
+                             "tool_choice": "none"}}  # what the mode's flags default to
 
 
 def suite(args) -> int:
@@ -835,6 +838,12 @@ def main() -> int:
     a.add_argument("--agents", type=ints, default=[1, 4, 8, 16], help="agents at once, one level each, comma-separated")
     a.add_argument("--tool-mode", choices=("none", "recorded"), default="none",
                    help="recorded: sleep the recorded tool time after each turn (agentperf-local's fixed_delay)")
+    a.add_argument("--thinking", choices=("server", "on", "off"), default="server",
+                   help="server: send nothing about thinking, the server's default (agentperf-local); on/off: send "
+                   "chat_template_kwargs enable_thinking")
+    a.add_argument("--tool-choice", choices=("none", "unset"), default="none",
+                   help="none: tool_choice none with the tools, no tool-call grammar (agentperf-local --tool-choice none, "
+                   "NVIDIA's DGX Spark result); unset: send no tool_choice (agentperf-local's default)")
     a.add_argument("--sessions", type=int, help="conversations open at once (task copies), the agents taking turns from "
                    "them, longest-waiting first (default: each agent runs one task to its end)")
     a.add_argument("--label", help="the records' label (default: --engine)")

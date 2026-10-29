@@ -53,7 +53,7 @@ def test_level_runs_copies_past_the_task_count_each_under_its_own_namespace(tmp_
     assert len(sent) == 10
     assert {(r["max_tokens"], r["ignore_eos"], r["temperature"], r["top_p"], r["top_k"]) for r in sent if r["max_tokens"] == 5} \
         == {(5, True, 0.7, 0.8, 20)}
-    assert all(r["chat_template_kwargs"] == {"enable_thinking": False} and r["tools"] == 1 for r in sent)
+    assert all(r["chat_template_kwargs"] is None and r["tools"] == 1 and r["tool_choice"] == "none" for r in sent)
     heads = {r["first"] for r in sent}  # first 40 characters of the first message: the copy's namespace
     assert len(heads) == 2
     turns = [json.loads(line) for line in out.read_text().splitlines()]
@@ -156,3 +156,13 @@ def test_every_suite_option_is_a_flag_and_the_suite_sets_every_flag():
         for key, value in efficiency.DEFAULTS[part].items():  # the flags a suite leaves alone default as DEFAULTS says
             if key not in options:
                 assert ns[key] == value, (part, key)
+
+
+def test_thinking_and_tool_choice_are_sent_only_when_asked(tmp_path, server):
+    url, log = server
+    row = ar.load_tasks(replay_dir(tmp_path, turns=(1,)))[0]["rows"][0]
+    ar.turn_request(url, "mock-model", row, "0" * 32, thinking="off", tool_choice="unset")
+    ar.turn_request(url, "mock-model", row, "0" * 32, thinking="on")
+    sent = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [(r["chat_template_kwargs"], r["tool_choice"]) for r in sent] == \
+        [({"enable_thinking": False}, None), ({"enable_thinking": True}, "none")]

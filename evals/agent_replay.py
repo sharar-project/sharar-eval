@@ -14,6 +14,11 @@ and 5 OpenClaw assistant tasks, 168 model turns, contexts up to ~56k tokens; pin
 - cache isolation: a namespace of 32 random digits heads the first message, so turns of one conversation share their
   prefix as a real agent's do and nothing is reused from another run;
 - the standard sampling preset (temperature 0.7, top-p 0.8, top-k 20, min-p 0);
+- thinking as the server serves it by default: like agentperf-local, nothing about thinking is sent (`thinking` "on"
+  or "off" sends chat_template_kwargs enable_thinking, for an A/B);
+- tool_choice "none" with the tools (agentperf-local's --tool-choice none, which NVIDIA's DGX Spark result used): the
+  server applies no tool-call grammar or parser, so a reply that holds a call streams as text and ends at its
+  recorded length (`tool_choice` "unset" sends none, agentperf-local's default);
 - tool time: none by default (tool_mode "recorded" sleeps the recorded tool durations after each turn).
 Added for many agents: N agents run at once, each taking the next task when its own ends (closed loop); the 8 tasks
 run once at N <= 8, and copies run at N > 8 (each copy under its own namespace, so copies share nothing).
@@ -21,8 +26,6 @@ Sessions (optional, `sessions`): S conversations are open at once (the tasks' co
 and the N agents take turns from them: an agent sends the next turn of the conversation that has waited longest, then
 puts that conversation at the back of the line. Every conversation then sits idle while the others' turns run, as a
 real agent's does during its tool calls and its user's reading, so the open contexts can outgrow the engine's cache.
-Deviation: thinking is turned off (chat_template_kwargs enable_thinking false), so all engines run the same template
-whatever their default.
 
 Records (one JSON object a line, as engine-bench's agents*.jsonl): "agent_turn" per turn (raw stream timings, usage,
 tool calls, faults) and "agent_level" per level. `summarize` gives the per-level figures engine-bench publishes
@@ -72,14 +75,18 @@ def load_tasks(replay: Path, manifest: str = "manifest-arm64.json") -> list[dict
                                                if line.strip()]} for t in m["tasks"]]
 
 
-def turn_request(url, model, row, ns, timeout=3600):
-    """One replayed turn, streamed; raw timings and what came back, parsed after the stream closes."""
+def turn_request(url, model, row, ns, timeout=3600, thinking="server", tool_choice="none"):
+    """One replayed turn, streamed; raw timings and what came back, parsed after the stream closes. thinking: "server"
+    sends nothing (the server's default), "on"/"off" send enable_thinking; tool_choice: "none" or "unset"."""
     body = {"model": model, "messages": isolate(row["messages"], ns), "stream": True,
             "stream_options": {"include_usage": True}, "max_tokens": row["target_output_tokens"], "ignore_eos": True,
-            "temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0,
-            "chat_template_kwargs": {"enable_thinking": False}}
+            "temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0}
+    if thinking != "server":
+        body["chat_template_kwargs"] = {"enable_thinking": thinking == "on"}
     if row.get("tools"):
         body["tools"] = row["tools"]
+        if tool_choice != "unset":
+            body["tool_choice"] = tool_choice
     req = urllib.request.Request(url.rstrip("/") + "/v1/chat/completions", json.dumps(body).encode(),
                                  {"Content-Type": "application/json"})
     t0 = time.time(); lines = []
@@ -105,7 +112,7 @@ def turn_request(url, model, row, ns, timeout=3600):
         ch = (c.get("choices") or [{}])[0]
         finish = ch.get("finish_reason") or finish
         d = ch.get("delta") or {}
-        visible = (d.get("content") or "") + (d.get("reasoning_content") or "")
+        visible = (d.get("content") or "") + (d.get("reasoning_content") or "") + (d.get("reasoning") or "")
         for tc in d.get("tool_calls") or []:
             slot = calls.setdefault(tc.get("index", 0), {"name": "", "arguments": ""})
             fn = tc.get("function") or {}
@@ -150,7 +157,8 @@ def level(a, tasks, n, log, rng):
     lock = threading.Lock(); episodes = []
 
     def turn(slot, copy, task, row):
-        r = turn_request(a.url, a.model, row, ns[copy])
+        r = turn_request(a.url, a.model, row, ns[copy], thinking=getattr(a, "thinking", "server"),
+                         tool_choice=getattr(a, "tool_choice", "none"))
         r["faults"] = check(r, row)
         r.update(task=task["task_id"], copy=copy, agent=slot, turn=row["conversation_idx"],
                  target=row["target_output_tokens"], recorded_prompt=row["recorded_prompt_tokens"])
