@@ -250,6 +250,13 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   finished cells), `run.json` the engine, version, server description and dataset hashes, `checks.json` the
   pre-flight checks, and each cell AIPerf's exports with `cell.json` (`warm/<context>-<kind>/c<N>/` for warm-decode).
 
+## Engines
+
+sharar-eval measures whatever OpenAI-compatible server answers at `--url`. [`engines/`](engines/README.md)
+holds what starts one for the benchmarks: per engine (vLLM by eugr's recipes, Sharar) every pinned version, one
+setting per model, and `serve.sh`; `engines/common/run.sh ENGINE MODEL` reserves a DGX Spark, starts the engine, runs
+`efficiency suite --suite cross-engine` and stops it.
+
 ## Commands
 
 `uv run sharar-eval <command> --help` shows each command's arguments.
