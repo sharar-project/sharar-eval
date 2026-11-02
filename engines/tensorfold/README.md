@@ -2,56 +2,88 @@
 
 ## 1. What runs
 
-MiaAI-Lab's one-Spark recipe, [Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold](https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold)
-at `fd3f43e` (2026-10-27): TensorFold v1.1.4 (`ashhart/TensorFold` `eab85828`, the Zig engine `tensorfold-native`) with
-the recipe's patches 0001-0017, in the image `tensorfold-qwen38:v1.1.4-eab8582` that the recipe's `scripts/prepare.sh`
-builds on `nvcr.io/nvidia/pytorch:26.07-py3`. The recipe pins everything (`scripts/config.sh`); `versions.env` pins the
-recipe. Checkpoint: nvidia/Qwen3.8-Flash-Next-FP4-Local `b9ce18a` (the recipe's default, the same checkpoint vLLM's
-eugr recipe serves). Every setting keeps the recipe's fp8 KV cache, MTP drafts, sampling and thinking, with vision off.
+Each model runs a different TensorFold build, because no one build or recipe served all four on 2026-10-28:
 
-| Setting | What it is | Streams | Window (`CONTEXT`) | Reserve |
+| Model | Build | Launch | Checkpoint (revision) | Pinned in |
 |---|---|---|---|---|
-| `qwen3.8-flash-next` | The comparison: inside the 102 GiB budget every engine gets | 16 | 40,960 | `MemAvailable` - 102 (15-16 GiB) |
-| `qwen3.8-flash-next-maxfit` | As many warm requests as fit one GB10, outside the budget; one prompt size per run | 8k: 32, 16k: 32, 32k: 16 | 8k: 12,288, 16k: 19,968, 32k: 40,960 | 8k: 9, 16k: 5, 32k: 7 GiB |
-| `qwen3.8-flash-next-p32` | For trying a size by hand: `TF_PARALLEL`, `TF_CONTEXT`, `TF_RESERVE_GIB`, `TF_ENV` from the environment | 32 | 12,288 | 9 GiB |
+| Qwen3.8-Flash-Next | v1.1.4 (`ashhart/TensorFold` `eab85828`) + the recipe's patches 0001-0017, image `tensorfold-qwen38:v1.1.4-eab8582` built on `nvcr.io/nvidia/pytorch:26.07-py3` | MiaAI-Lab's one-Spark recipe [Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold](https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold) `fd3f43e`, its `start.sh` | nvidia/Qwen3.8-Flash-Next-FP4-Local `b9ce18a` (the recipe's pin; the checkpoint vLLM serves), MTP drafts | `versions.env` |
+| Nemotron 3.5 Bolt | v1.1.6 (`eea9dc9c`) + the recipe's libbolt backend, image `tensorfold-nemotron-bolt:zig-eea9dc9` | MiaAI-Lab's [Nemotron-3.5-Bolt-TensorFold-DGX-Spark](https://github.com/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark) `2cea422`, its `start.sh` | nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB `a326822` (the recipe's pin: the same weight files as the `cf2effc` Sharar and vLLM serve), LiLiCorr `4c6a561` | the setting |
+| Qwen3.8-27B | v1.1.7 release binary (`59044397`) | on the host (`TF_LAUNCH=native`) | nvidia/Qwen3.8-27B-NVFP4 `482ca0f` + z-lab/Qwen3.8-27B-DFlash2 `50307d4` (vLLM's) | the setting |
+| Nemotron 3.5 Super | v1.1.7 release binary (`59044397`) | on the host (`TF_LAUNCH=native`) | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 `6aae0d6` (Sharar's and vLLM's; TensorFold's own pin `82d9369` differs only in README.md), MTP drafts | the setting |
 
-`-maxfit` at 16k also sets `TF_FLASHNEXT_HEAD_KV=fp8` (the MTP head's own cache in fp8 too; the recipe notes it costs
-about a fifth of accepted drafts) and `TF_FLASHNEXT_CHUNK=1024` (prompt passes of 1,024 rows instead of 3,072: a
-smaller per-stream buffer, slower priming, decode unchanged). Section 4 says why each number is what it is.
+Every setting keeps its recipe's or the engine's KV format, drafts, sampling and thinking, with vision off: KV FP8
+(Flash-Next, 27B), BF16 (Bolt, the recipe's), the engine's default (Super). Port 8888 for all.
 
-There is no `-fast` setting: the recipe as shipped (5 streams of 262,144 tokens, vision on) does not start under the
-budget ("--parallel 5 needs 23.92 GiB for its streams at a 262144-token window, and the CUDA memory budget leaves
-22.93 GiB", spark3, 2026-10-28), and suite `cross-engine-n4`'s cells are `cross-engine`'s N = 1, 2 and 4 anyway.
+| Setting | What it is | Streams | Window | Reserve / prompt cache |
+|---|---|---|---|---|
+| `qwen3.8-flash-next` | **baseline**, warm decode: inside the 102 GiB budget every engine gets | 16 | 40,960 | `MemAvailable` - 102 (15-16 GiB) / the rest of the pool |
+| `qwen3.8-flash-next-maxfit` | **baseline**, warm decode: as many warm requests as fit one GB10, outside the budget; `CONTEXT=8k`, `16k` or `32k` | 8k: 32, 16k: 32, 32k: 16 | 8k: 12,288, 16k: 19,968, 32k: 40,960 | 8k: 9, 16k: 5, 32k: 7 GiB |
+| `qwen3.8-flash-next-p32` | sizes from the environment (`TF_PARALLEL`, default 32; `TF_CONTEXT`, 12,288; `TF_RESERVE_GIB`, 9; `TF_ENV`). **Baseline** for the agent replay with `TF_PARALLEL=16 TF_CONTEXT=65536 TF_RESERVE_GIB=9 TF_ENV=TF_FLASHNEXT_HEAD_KV=fp8` | env | env | env |
+| `qwen3.8-flash-next-a32` | Open-SWE replay at 32 agents (`evals/openswe.py`, branch `feat/agent-replay-openswe`, not in main) | 6 | 131,072 | budget |
+| `qwen3.8-flash-next-long8` | Open-SWE's 8 longest sessions uncut (prompts to 254,024), same branch | 4 | 262,144 | budget |
+| `qwen3.8-27b-maxfit` | **baseline**, warm decode and agent replay; `CONTEXT=8k`, `16k`, `32k` or `agents` | 32 / 32 / 16 / 16 | 12,288 / 20,480 / 38,912 / 65,536 | 7 GiB; cache 26 / 22 / 38 / 26 GiB |
+| `nemotron-3.5-bolt-maxfit` | **baseline**, as above | 16 at every size | 40,960 (`agents`: 65,536) | 9 GiB; cache 24 GiB |
+| `nemotron-3.5-super-maxfit` | **baseline**, as above | 32 / 32 / 16 / 16 | 12,288 / 22,528 / 38,912 / 65,536 | 6 / 5 / 7 / 6 GiB; cache 24 / 24 / 24 / 20 GiB |
+
+The 27B, Bolt and Super `-maxfit` values can be overridden from the environment (`TF_PARALLEL`, `TF_CONTEXT`,
+`TF_RESERVE_GIB`, `TF_PCACHE`, `TF_KV`); `qwen3.8-flash-next-maxfit` fixes its own (try other sizes with `-p32`).
+At 16k it also sets `TF_FLASHNEXT_HEAD_KV=fp8` (the MTP head's own cache in fp8 too; the recipe notes it costs about a
+fifth of accepted drafts) and
+`TF_FLASHNEXT_CHUNK=1024` (prompt passes of 1,024 rows instead of 3,072: a smaller per-stream buffer, slower priming,
+decode unchanged). Section 4 says why each Flash-Next number is what it is; section 6 the other three models.
+
+There is no `-fast` setting: the Flash-Next recipe as shipped (5 streams of 262,144 tokens, vision on) does not start
+under the budget ("--parallel 5 needs 23.92 GiB for its streams at a 262144-token window, and the CUDA memory budget
+leaves 22.93 GiB", spark3, 2026-10-28), and suite `cross-engine-n4`'s cells are `cross-engine`'s N = 1, 2 and 4 anyway.
 
 ## 2. One-time setup on a Spark
 
-- Docker with the NVIDIA runtime, your user in the `docker` group (`serve.sh` re-runs itself under `sg docker`).
-- About 50 GB free disk for the image, plus 96 GiB for the checkpoint if it is not in `~/.cache/huggingface` yet.
-- The first `serve.sh up` clones the recipe into `$TF_DIR` (default `~/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold`)
-  at `RECIPE_COMMIT` and its `start.sh` builds the image (30-60 minutes) and downloads the checkpoint. Building first,
-  with no engine running, is quicker to debug: `cd $TF_DIR && ./scripts/prepare.sh`. No prebuilt image for this patch
-  set was on ghcr.io (2026-10-27).
-- No `.env` in the recipe checkout (it would override the setting; `serve.sh` refuses one).
-- Resolve the prompt sets once, with no engine serving: `uv run sharar-eval efficiency prepare --context 8k,16k,32k`.
+- Docker with the NVIDIA runtime, your user in the `docker` group (`serve.sh` re-runs itself under `sg docker`; the
+  native settings need Docker access too, though they do not use it).
+- Flash-Next: about 50 GB free disk for the image, plus 96 GiB for the checkpoint if it is not in
+  `~/.cache/huggingface` yet. The first `serve.sh up` clones the recipe into `$TF_DIR` (default
+  `~/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold`) at `RECIPE_COMMIT` and its `start.sh` builds the image (30-60
+  minutes) and downloads the checkpoint. Building first, with no engine running, is quicker to debug:
+  `cd $TF_DIR && ./scripts/prepare.sh`. No prebuilt image for this patch set was on ghcr.io (2026-10-27).
+- Bolt: the same, with the Bolt recipe cloned into `$TF_DIR_BOLT` (default `~/Nemotron-3.5-Bolt-TensorFold-DGX-Spark`)
+  at `2cea422`; its `scripts/prepare.sh` built the image in about 10 minutes. Passwordless `sudo` to drop the page
+  cache before each start (`DROP_PAGE_CACHE=1`, below).
+- 27B and Super: unpack TensorFold's v1.1.7 release archive `tensorfold-1.1.7-linux-aarch64.tar.gz` (check it against
+  its `.sha256`) so that `~/opt/tensorfold-1.1.7-linux-aarch64/bin/tensorfold-native` exists (`TF_BIN` overrides), and
+  download the checkpoints by revision, since the native launch does not:
+  ```sh
+  hf download nvidia/Qwen3.8-27B-NVFP4 --revision 482ca0f3832238542f8f5295dde86b5f22711d80
+  hf download z-lab/Qwen3.8-27B-DFlash2 --revision 50307d4c4cde6860d4eee73e2547cd786fe8e8a4
+  hf download nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 --revision 6aae0d6d0285e561bbb72efa10ba1425d41ebddc
+  ```
+  into `~/.cache/huggingface/hub` (`HF_HOME` / `HF_HUB_CACHE`; on a box whose login shell points `HF_HOME` at a shared
+  cache, export `HF_HOME=$HOME/.cache/huggingface` first).
+- No `.env` in a recipe checkout (it would override the setting; `serve.sh` refuses one).
+- The prompt sets, once, with no engine serving: `uv run sharar-eval efficiency prepare --context 8k,16k,32k`.
 
 ## 3. Run it
 
 One prompt size per run: TensorFold has no cache flush, so a fresh server per size keeps one size's kept prompts out of
-the next one's cache, and `-maxfit` sizes its server for one size. `CONTEXT` picks the suite's sizes (`suite --context`).
+the next one's cache, and `-maxfit` sizes its server for one size. `CONTEXT` picks the suite's sizes (`suite --context`)
+and the `-maxfit` sizing.
 
 ```sh
-for c in 8k 16k 32k; do CONTEXT=$c engines/common/run.sh tensorfold qwen3.8-flash-next; done          # the comparison
+for c in 8k 16k 32k; do CONTEXT=$c engines/common/run.sh tensorfold qwen3.8-flash-next; done          # the budget run
 for c in 8k 32k 16k; do CONTEXT=$c engines/common/run.sh tensorfold qwen3.8-flash-next-maxfit; done   # max-fit (16k last: lowest reserve)
-CONTEXT=16k TF_PARALLEL=32 TF_CONTEXT=22528 TF_RESERVE_GIB=6 engines/common/run.sh tensorfold qwen3.8-flash-next-p32   # by hand
+for c in 8k 16k 32k; do CONTEXT=$c engines/common/run.sh tensorfold nemotron-3.5-bolt-maxfit; done    # likewise qwen3.8-27b-, nemotron-3.5-super-maxfit
+CONTEXT=agents engines/common/run.sh tensorfold nemotron-3.5-bolt-maxfit cross-engine-agents           # agent replay (section 7)
+CONTEXT=16k TF_PARALLEL=32 TF_CONTEXT=22528 TF_RESERVE_GIB=6 engines/common/run.sh tensorfold qwen3.8-flash-next-p32   # a size by hand
 engines/tensorfold/serve.sh up qwen3.8-flash-next ~/tf-fn    # serve only (start.sh output in ~/tf-fn/server-start.log)
 engines/tensorfold/serve.sh down ~/tf-fn                     # stop.sh; the container's log goes to ~/tf-fn/server.log
 uv run python engines/tensorfold/restore_probe.py http://127.0.0.1:8888 32k 1024    # which prompts resume from their kept state
 ```
 
-Results: `~/engine-baselines/tensorfold/<setting>/<UTC time>-<host>/` (run.sh). Read `report.txt`, then `server.log`
-for `RestoreRejected`, `evicted` and `refused` when a row stops early.
+`serve.sh up` of a `-maxfit` setting needs `CONTEXT` set as well. Results:
+`~/engine-baselines/tensorfold/<setting>/<UTC time>-<host>/` (run.sh). Read `report.txt`, then `server.log` for
+`RestoreRejected`, `evicted` and `refused` when a row stops early. The native server runs under `setsid` and the recipe
+servers in a container: if `run.sh` is killed, stop them with `serve.sh down <the run's directory>`.
 
-## 4. Sizing: streams, window and reserve
+## 4. Sizing Flash-Next: streams, window and reserve
 
 **The pool.** TensorFold's pool is `MemAvailable` after the weights load (74.35 GiB on the GPU) less
 `TENSORFOLD_MEMORY_RESERVE_GIB`: about 25 GiB at reserve 15, 31 at 9, 34.7 at 5 (vision off). `serve.sh` sets the
@@ -96,6 +128,8 @@ head in fp8 and removes the line, so the window only has to hold the request.
 - **First pass against repeats.** Decode reads n-gram rows through the page cache: the first burst over new prompts
   can be slower than later ones while those rows come off the SSD (`disk.log` shows the reads).
 - **Name clash.** run.sh's `CONTEXT` is the prompt sizes; the recipe's `CONTEXT` (the window) is `TF_CONTEXT` here.
+- **Free memory at start sets the pool**, so the same setting gets a different prompt cache on another box or next to
+  a download; label results with the machine.
 - A start takes about 3 minutes (the weights load, then `start.sh`'s smoke request). `START_TIMEOUT_S` (default 90
   minutes) covers a first start that builds the image.
 
@@ -152,19 +186,17 @@ What limits each row:
 
 ## 7. Agent replay
 
-`sharar-eval efficiency agent-replay` (method: `docs/agent-replay.md`) runs against TensorFold like any other engine.
-The agent-replay size `agents` serves 16 streams with 65,536-token windows (the largest recorded turn is 57,587 tokens);
-at more agents than streams the rest wait for a stream. Flash-Next uses its own setting:
+`sharar-eval efficiency agent-replay` (method: `docs/agent-replay.md`) runs against TensorFold like any other engine;
+`run.sh` with suite `cross-engine-agents` runs it. Size `agents` serves 16 streams with 65,536-token windows (the
+largest recorded turn is 57,587 tokens); at more agents than streams the rest wait for a stream, so the 32-agent
+level measures queueing. Flash-Next uses `-p32` with the sizes from the environment:
 
 ```sh
 TF_PARALLEL=16 TF_CONTEXT=65536 TF_RESERVE_GIB=9 TF_ENV=TF_FLASHNEXT_HEAD_KV=fp8 \
-  engines/tensorfold/serve.sh up qwen3.8-flash-next-p32 ~/tf-agents
-uv run sharar-eval efficiency agent-replay --engine tensorfold --engine-version "TensorFold 1.1.4 ..." \
-  --url http://127.0.0.1:8888 --out ~/tf-agents/agents --agents 1,8,16 --tool-mode none
-engines/tensorfold/serve.sh down ~/tf-agents
+  engines/common/run.sh tensorfold qwen3.8-flash-next-p32 cross-engine-agents
+for m in qwen3.8-27b nemotron-3.5-bolt nemotron-3.5-super; do
+  CONTEXT=agents engines/common/run.sh tensorfold $m-maxfit cross-engine-agents; done
 ```
-
-27B, Bolt and Super use their max-fit setting at size `agents`: `CONTEXT=agents engines/tensorfold/serve.sh up <model>-maxfit DIR`.
 
 What decides its cache hit:
 - TensorFold 1.1.4 (Flash-Next) and the Bolt / Super builds resume a conversation only at the exact end of the previous
@@ -175,5 +207,4 @@ What decides its cache hit:
 - The prompt cache is sized from the memory left after the model and the streams, so it differs by box (Flash-Next:
   8.8 GiB on spark3, 5.3 GiB on spark4, 1.9 GiB on spark-911c). With fewer conversation states than agents it evicts.
 
-Measured numbers for all four models are in `campaigns/2026-10-29-agent-replay/` (campaign branch).
-
+Measured numbers for all four models are in `campaigns/2026-10-29-agent-replay/` on branch `campaign/cross-engine-1027`.

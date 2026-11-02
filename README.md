@@ -211,19 +211,20 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   By default a cell times the first N prompts of the file. `--questions K` averages it instead: N requests run
   ceil(K/N) bursts of N different prompts, each flushed, primed and timed on its own, and the cell reports their mean
   (each burst under `rounds`). `--fixed-prompts` keeps every N on the same first K prompts (N above K is not run), and
-  `--min-bursts M` times each cell at least M times in whole passes over them. `--balance` draws the prompts evenly
+  `--min-bursts M` (needs `--fixed-prompts`) times each cell at least M times in whole passes over them. `--balance` draws the prompts evenly
   from the kind's source datasets (low entropy: RepoBench Python, RepoBench Java, JetBrains Long Code Arena and
   AdaLEval text sorting, whose shares in the file change with length; other kinds by sub-category): each source is
   shuffled with `--prompt-seed` (default 0) and the sources are taken in turn, so every length gets the same mix.
-  `--exclude-sources` leaves sources out. An engine without a flush endpoint passes `--flush-cmd` (a restart) to empty
-  its cache before each burst. `--prime-passes 2` sends each burst's prompts twice before timing, for an engine
-  that keeps a prompt's cache only once it has seen it twice (vLLM's Nemotron recipes). Where the server reports speculation counters (Sharar's `/get_server_info`
+  `--exclude-sources` leaves sources out. An engine without a flush endpoint can pass `--flush-cmd` (a restart) to empty
+  its cache before each burst; without one it is not flushed (TensorFold: earlier bursts' prompts stay cached until
+  evicted). `--prime-passes K` sends each burst's prompts K times before timing, for an engine that keeps a prompt's
+  cache only once it has seen it more than once (vLLM's Nemotron recipes: 2, Super with 3 drafts: 3). Where the server reports speculation counters (Sharar's `/get_server_info`
   `spec_stats`), each burst records the share of drafted tokens accepted and the tokens emitted per request per
   verify round.
   Only the window in which all N decode is timed: from the last request's first token to the first request's last
   token, so neither prefill nor time to first token is in it. Reported per cell: aggregate decode tokens/s (tokens
   streamed in the window over its length), per-request decode tokens/s (median and slowest), the window's length
-  and share of each request's decode, the lowest cache hit, the longest time to first token, and the longest pause
+  and its share of the median request's decode, the lowest cache hit, the longest time to first token, and the longest pause
   between two chunks of one request inside the window (an engine that sets a request aside while the others decode
   shows it there; it already lowers both rates). A cell whose requests fail, answer short, or read under `--min-hit`
   (default 95%) of their prompt from cache is primed and run once more; if it misses again the row stops there
@@ -233,7 +234,8 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   keeps AIPerf's raw export, so each chunk is counted with its own tokens (its text in the pinned tokenizer, scaled
   to the server's count): a server that streams in bursts or holds a stream back is counted when its tokens arrive.
   `report --recompute RUN` rebuilds stored cells with the current maths (older cells without the raw export spread a
-  request's tokens over its chunks, and over its whole span when the server held the stream back).
+  request's tokens over its chunks, and over its whole span when the server held the stream back). A cell of several
+  bursts is rebuilt burst by burst and merged as the run merged it; each burst keeps the speculation counters it recorded.
   `--max-tokens-in-flight 256k` skips cells whose N x context is larger. The engine needs prefix caching, and should report cached prompt tokens
   (`usage.prompt_tokens_details.cached_tokens`): without them the hit column reads "-" and nothing confirms prefill
   was skipped. N has no cap here; the engine's batch size and memory are the limit.
@@ -260,9 +262,11 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   N = 1 runs 32 bursts of one and N = 32 a burst of all 32; every cell is timed at least three times in whole passes
   (`--min-bursts 3`: N = 16 two passes, N = 32 three). Cache-hit floor 60% (vLLM's prefix cache keeps 80-95% of these
   hybrid-model prompts). The checkpoint's own sampling (temperature 1.0, top-p 0.95, thinking at `xhigh`). `suite
-  --flush-cmd` passes warm-decode's. `cross-engine-thinking-off`: the same cells with thinking off (sampling unchanged).
-  `cross-engine-n4`: its N = 1, 2 and 4 cells only, for an engine setting that decodes at most 4 requests at once.
-  `smoke`: a few-minute check of an engine. `suite --context 16k` (or `8k,32k`) runs warm-decode at only those of the
+  --flush-cmd`, `--prime-passes` and `--min-hit` (overrides the suite's floor) pass to warm-decode: they say how the
+  engine caches, not what is measured. `cross-engine-thinking-off`: the same cells with thinking off (sampling
+  unchanged). `cross-engine-n4`: its N = 1, 2 and 4 cells only, for an engine setting that decodes at most 4 requests
+  at once. `cross-engine-n64`: N = 64 only, one burst of 64 balanced prompts whose first 32 are cross-engine's.
+  `smoke`: a few-minute check of an engine (8k, N = 1 and 4, 256 tokens). `suite --context 16k` (or `8k,32k`) runs warm-decode at only those of the
   suite's contexts, the same cells; `suite.json` records it. An engine that keeps one size's cached prompts into the
   next (no flush endpoint) can run each size on a fresh server this way. `cross-engine-agents`:
   agent-replay at 1, 8, 16 and 32 agents, no tool time.

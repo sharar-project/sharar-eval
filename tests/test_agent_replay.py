@@ -187,3 +187,8 @@ def test_steady_level_keeps_s_conversations_open_with_n_requests_in_flight(tmp_p
     assert peak <= 2
     assert len(primes) == sum(1 for r in primes)  # primes are recorded apart and not measured
     assert lv["tasks"] >= 1  # conversations that ended were replaced
+    # the table counts finished conversations, not every conversation a turn touched, and has no per-task times
+    s = ar.summarize(recs + [lv])[0]
+    assert len({(t["task"], t["copy"]) for t in turns}) > lv["tasks"]
+    assert s["tasks"] == lv["tasks"] and s["tasks_per_hour"] == round(3600 * lv["tasks"] / lv["wall_s"], 1)
+    assert s["task_p50_s"] is None and s["task_p90_s"] is None and s["turns"] == lv["turns"]

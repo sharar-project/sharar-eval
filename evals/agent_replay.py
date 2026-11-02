@@ -359,9 +359,12 @@ def summarize(records: list[dict]) -> list[dict]:
         ttft = [1000 * (t["first"] - t["t0"]) for t in ok]; e2e = [1000 * (t["end"] - t["t0"]) for t in ok]
         out_tokens = sum(t["completion_tokens"] or 0 for t in ok)
         r1 = lambda v, d=1: None if v is None else round(v, d)  # noqa: E731
-        out.append({"label": key[0], "agents": key[1], "tasks": len(tasks), "turns": len(ts), "wall_s": round(lv["wall_s"], 1),
-                    "aggregate_tok_s": round(out_tokens / lv["wall_s"], 2), "tasks_per_hour": round(3600 * len(tasks) / lv["wall_s"], 1),
-                    "task_p50_s": r1(pct(task_s, 0.5)), "task_p90_s": r1(pct(task_s, 0.9)),
+        # a steady level (--inflight) touches conversations it neither starts nor finishes: its tasks are the ones that
+        # reached their last turn (steady_level's count), and per-task times are not defined
+        steady = bool(lv.get("steady")); done = lv["tasks"] if steady else len(tasks)
+        out.append({"label": key[0], "agents": key[1], "tasks": done, "turns": len(ts), "wall_s": round(lv["wall_s"], 1),
+                    "aggregate_tok_s": round(out_tokens / lv["wall_s"], 2), "tasks_per_hour": round(3600 * done / lv["wall_s"], 1),
+                    "task_p50_s": None if steady else r1(pct(task_s, 0.5)), "task_p90_s": None if steady else r1(pct(task_s, 0.9)),
                     "ttft_p50_ms": r1(pct(ttft, 0.5), None), "ttft_p95_ms": r1(pct(ttft, 0.95), None),
                     "turn_p50_ms": r1(pct(e2e, 0.5), None), "turn_p95_ms": r1(pct(e2e, 0.95), None),
                     "decode_tok_s_pooled": round(sum(k - 1 for k, _ in win) / sum(s for _, s in win), 1) if win else None,

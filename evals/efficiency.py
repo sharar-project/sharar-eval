@@ -26,8 +26,8 @@ together, each forced to --output-tokens with ignore_eos. Priming per cell, not 
 that keeps fewer prompts cached would otherwise evict the earliest ones, the very prompts the small cells reuse. Per cell:
 - window: from the moment the last request starts decoding to the moment the first one ends, all N are decoding and
   nobody prefills;
-- aggregate decode tok/s: tokens streamed inside the window over its length (a request's tokens are spread evenly over
-  its streamed chunks: exact at one token a chunk, an average where a chunk carries a speculative burst);
+- aggregate decode tok/s: tokens streamed inside the window over its length (each chunk counted with its own tokens,
+  see "token counts per chunk" below);
 - per-stream decode tok/s: each request's (tokens - 1) over its first to last token, median and slowest;
 - longest pause: the longest gap between two chunks of one request inside the window (an engine that sets a request
   aside while the others decode shows it here; it already lowers both rates);
@@ -453,6 +453,24 @@ def merge_rounds(parts: list[dict]) -> dict:
     return out
 
 
+def recompute_cell(cell_dir: Path, cell: dict, output_tokens: int, count=None) -> dict:
+    """A cell's summary again from its AIPerf records, with this version's maths: every burst (c<N>, c<N>-r1, ...)
+    rebuilt and merged as the run merged them. Speculation counters come from the server, not AIPerf's records, so each
+    burst keeps the ones it recorded."""
+    n, old = cell["n"], cell["summary"]
+    dirs = [cell_dir] + sorted(cell_dir.parent.glob(f"{cell_dir.name}-r*"), key=lambda d: int(d.name.rsplit("-r", 1)[1]))
+    dirs = [d for d in dirs if (d / "aiperf").is_dir()]
+    olds = old.get("rounds") or [old]
+    parts = []
+    for i, d in enumerate(dirs):
+        part = warm_summary(d / "aiperf", n, output_tokens, count)
+        spec = olds[i].get("spec") if i < len(olds) else None
+        if spec:
+            part["spec"] = spec
+        parts.append(part)
+    return parts[0] if len(parts) == 1 else merge_rounds(parts)
+
+
 def warm_decode(args) -> int:
     from evals.speed import model as snapshot_model
     from evals.suite import evals_tree
@@ -623,7 +641,7 @@ def agent_replay(args) -> int:
     keep = [r for r in records if r["label"] != label or r["agents"] in done]
     if len(keep) != len(records):
         path.write_text("".join(json.dumps(r) + "\n" for r in keep))
-    print(f"{label} @ {url}: agentperf-default-v1, {len(tasks)} tasks, {sum(len(t['rows']) for t in tasks)} turns, "
+    print(f"{label} @ {url}: {record['replay']}, {len(tasks)} tasks, {sum(len(t['rows']) for t in tasks)} turns, "
           f"exact output lengths, thinking {args.thinking}, tool_choice {args.tool_choice}, tool time {args.tool_mode}"
           + (f", {args.sessions} conversations open, agents taking turns" if args.sessions else "")
           + (f", steady state: --agents open, {args.inflight} requests in flight, {args.duration:.0f} s per level"
@@ -748,7 +766,7 @@ def report(args) -> int:
                         if count is None and (p.parent / "aiperf" / "profile_export_raw.jsonl").is_file():
                             from evals.speed import model as snapshot_model
                             count = token_counter(str(snapshot_model.snapshot_dir(None)))
-                        cell["summary"] = warm_summary(p.parent / "aiperf", cell["n"], meta["output_tokens"], count)
+                        cell["summary"] = recompute_cell(p.parent, cell, meta["output_tokens"], count)
                         p.write_text(json.dumps(cell, indent=1))
                     print(warm_row(context, category, cell["n"], cell["summary"]))
                 if (group / "stopped.json").is_file():
