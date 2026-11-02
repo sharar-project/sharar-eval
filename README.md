@@ -181,6 +181,9 @@ time. AIPerf does the sending; sharar-eval fixes what is sent and versions it as
 
 ## Efficiency (any engine)
 
+How we run the two engine comparisons, step by step: [`docs/warm-decode.md`](docs/warm-decode.md) and
+[`docs/agent-replay.md`](docs/agent-replay.md); how each engine is started: [`engines/`](engines/README.md).
+
 `sharar-eval efficiency` measures an engine by mode: decode speed alone, with AIPerf sending the requests (it reuses
 the bench suite's runner, configs and engine table), and agent replay. The engine must already be serving at `--url`; `--engine` only picks its
 optional flush and self-description endpoints from `bench_v1.json` (`openai` for any other server), so another
@@ -271,7 +274,7 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
 ## Engines
 
 sharar-eval measures whatever OpenAI-compatible server answers at `--url`. [`engines/`](engines/README.md)
-holds what starts one for the benchmarks: per engine (vLLM by eugr's recipes, Sharar) every pinned version, one
+holds what starts one for the benchmarks: per engine (vLLM by eugr's recipes, Sharar, TensorFold) every pinned version, one
 setting per model, and `serve.sh`; `engines/common/run.sh ENGINE MODEL` reserves a DGX Spark, starts the engine, runs
 `efficiency suite --suite cross-engine` and stops it.
 

@@ -11,6 +11,8 @@ are Sharar's own pins at that commit (`sharar/model/*/config.py`), fetched on th
 | `qwen3.8-flash-next` | `flashnext --throughput` | 30004 | RadixArk/Qwen3.8-Flash-Next-NVFP4 `7b71922`, 3-bit copies `694e279` | nothing (up to 128 requests) |
 | `nemotron-3.5-bolt` | `bolt --throughput` | 30006 | nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB `cf2effc`, LiLiCorr draft | max batch 32 (default 16) |
 | `nemotron-3.5-super` | `nemotron --throughput` | 30005 | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 `6aae0d6`, 3-bit copies `2ca8b35` | max batch 32 (default 16) |
+| `nemotron-3.5-bolt-w3` | `bolt --throughput` | 30006 | as `nemotron-3.5-bolt`, plus 3-bit copies from `SHARAR_W3_CHECKPOINT` (default `~/bolt-w3/ckpt-gptq`; public copy shadowpa0327/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-sharar-w3 `f2b8327`) | max batch 32; the way the other three models are served (Sharar pins no Bolt calibration) |
+| `nemotron-3.5-bolt-w3-relaxed` | `bolt --throughput` | 30006 | as `-w3` | relaxed acceptance (top-3 within 2.0 logits, sampled requests too): outside Sharar's validated Bolt defaults, for experiments only |
 | `<model>-fast` (each of the four) | `<target> --fast` | as above | as above | nothing: at most 4 requests; run with suite `cross-engine-n4` (N = 1, 2, 4) |
 
 ## 2. One-time setup on a Spark

@@ -164,7 +164,7 @@ uv run sharar-eval efficiency agent-replay --engine tensorfold --engine-version 
 engines/tensorfold/serve.sh down ~/tf-agents
 ```
 
-(27B, Bolt and Super: `engines/common/run.sh`-style `serve.sh up <model>-maxfit DIR` with `CONTEXT=agents`.)
+27B, Bolt and Super use their max-fit setting at size `agents`: `CONTEXT=agents engines/tensorfold/serve.sh up <model>-maxfit DIR`.
 
 What decides its cache hit:
 - TensorFold 1.1.4 (Flash-Next) and the Bolt / Super builds resume a conversation only at the exact end of the previous

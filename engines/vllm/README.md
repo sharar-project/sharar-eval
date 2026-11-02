@@ -24,6 +24,24 @@ The last three do not change decoding. For Bolt and Super each burst is primed t
 shared-prefix checkpoints keep a prompt only once vLLM has seen it twice. Super's revision is the one Sharar pins; Hugging Face's later `da5b265` only
 deletes a backup chat template.
 
+Variants of these four, each a settings file that sources its base and changes one thing:
+
+| Setting | Change | Used for |
+|---|---|---|
+| `qwen3.8-27b-d4` | 4 DFlash2 drafts, memory 0.84 | the cross-engine runs (faster than 8 at N >= 4); agent replay |
+| `qwen3.8-27b-d4-s64`, `nemotron-3.5-bolt-s64` | `--max-num-seqs 64` | suite `cross-engine-n64` |
+| `qwen3.8-flash-next-d2` | 2 MTP drafts (a recurrent state per draft token, so more requests fit) | the cross-engine runs; agent replay |
+| `qwen3.8-flash-next-d2-m084` | memory 0.84 | a Spark that cannot free 0.86 |
+| `nemotron-3.5-bolt-m086` | memory 0.86 | agent replay |
+| `nemotron-3.5-super-d3` | 3 drafts, memory 0.86 | the cross-engine runs; agent replay |
+| `nemotron-3.5-super-d3-m084` | memory 0.84 | a Spark that cannot free 0.86 of its memory (spark4: 103.9 GiB free, 104.65 needed), or whose driver runs the 0.86 start out of memory in the fused-MoE autotune (spark5, driver 580.142) |
+| `nemotron-3.5-super-m081` | memory 0.81 | a Spark with less free memory |
+| `qwen3.8-flash-next-d2-mnbt1024`, `-mnbt2048` | `--max-num-batched-tokens` 1,024 / 2,048 | prefix-cache experiment: vLLM keeps one recurrent checkpoint before a long prompt's last prefill chunk, so smaller chunks leave it closer to the end (2,048: SWE-bench agent turns 44% -> 69% cached) |
+| `qwen3.8-flash-next-d2-rb2992`, `-al2992` | recurrent checkpoints every 2,992 tokens (default policy; aligned policy) | prefix-cache experiment: ignored under the default request-boundary policy; aligned loses the exact end-of-prompt hit |
+| `qwen3.8-flash-next-d2-ssmfp16`, `-ssmbf16`, `-tri`, `-tri-ssmbf16` | recurrent state in FP16 / BF16, Triton DeltaNet kernels | experiments: the recipe's b12x kernels refuse FP16 / BF16 state; Triton with BF16 matches the recipe at 1 agent |
+
+The experiment settings are not baselines: figures use each recipe as shipped (with the draft and memory changes above).
+
 ## 2. One-time setup on a Spark
 
 - Docker with the NVIDIA runtime, and your user in the `docker` group (`serve.sh` falls back to `sg docker`).
