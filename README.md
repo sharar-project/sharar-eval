@@ -245,7 +245,9 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   hybrid-model prompts). The checkpoint's own sampling (temperature 1.0, top-p 0.95, thinking at `xhigh`). `suite
   --flush-cmd` passes warm-decode's. `cross-engine-thinking-off`: the same cells with thinking off (sampling unchanged).
   `cross-engine-n4`: its N = 1, 2 and 4 cells only, for an engine setting that decodes at most 4 requests at once.
-  `smoke`: a few-minute check of an engine.
+  `smoke`: a few-minute check of an engine. `suite --context 16k` (or `8k,32k`) runs warm-decode at only those of the
+  suite's contexts, the same cells; `suite.json` records it. An engine that keeps one size's cached prompts into the
+  next (no flush endpoint) can run each size on a fresh server this way.
 - **Results.** `efficiency.json` holds the options (a rerun into the same directory must use the same ones and skips
   finished cells), `run.json` the engine, version, server description and dataset hashes, `checks.json` the
   pre-flight checks, and each cell AIPerf's exports with `cell.json` (`warm/<context>-<kind>/c<N>/` for warm-decode).

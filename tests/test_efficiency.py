@@ -435,3 +435,17 @@ def test_prime_passes_send_each_burst_more_than_once_before_timing(tmp_path, mon
     assert efficiency.warm_decode(args) == 0
     assert calls == ["prime-c1", "prime2-c1", "c1"]
     assert json.loads((args.out / "efficiency.json").read_text())["prime_passes"] == 2
+
+
+def test_suite_context_runs_only_those_of_its_contexts(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(efficiency, "warm_decode", lambda ns: seen.append(ns.context) or 0)
+    monkeypatch.setattr(efficiency.bench, "alive", lambda url: True)
+    args = argparse.Namespace(suite="cross-engine", engine="openai", engine_version="x", url="http://x", model=None,
+                              snapshot=None, aiperf=None, no_checks=True, out=tmp_path, flush_cmd=None, prime_passes=1,
+                              min_hit=None, context=["16k"])
+    assert efficiency.suite(args) == 0
+    assert seen == [["16k"]] and json.loads((tmp_path / "suite.json").read_text())["context"] == ["16k"]
+    args.context = ["4k"]
+    with pytest.raises(SystemExit):
+        efficiency.suite(args)

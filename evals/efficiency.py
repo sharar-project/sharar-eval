@@ -589,13 +589,20 @@ def suite(args) -> int:
         print(f"\n== {args.suite}: {part}", flush=True)
         engine_opts = {k: getattr(args, k) for k in ("flush_cmd", "prime_passes", "min_hit")
                        if part == "warm-decode" and getattr(args, k, None) not in (None, 1)}  # how the engine caches, not what is measured
+        if part == "warm-decode" and getattr(args, "context", None):  # some of the suite's contexts: its cells, fewer of them
+            extra = [c for c in args.context if c not in options["context"]]
+            if extra:
+                raise SystemExit(f"--context {','.join(extra)} is not in suite {args.suite} ({','.join(options['context'])})")
+            options = {**options, "context": args.context}
         ns = argparse.Namespace(**common, **{**DEFAULTS[part], **options, **engine_opts}, out=args.out / part)  # the suite overrides defaults
         worst = max(worst, warm_decode(ns))
         if not bench.alive(args.url.rstrip("/")):
             print(f"the server at {args.url} stopped answering; the remaining parts are not run", file=sys.stderr)
             return 2
     (args.out / "suite.json").write_text(json.dumps({"suite": args.suite, "version": SUITES["version"],
-                                                     "parts": SUITES["suites"][args.suite]}, indent=1))
+                                                     "parts": SUITES["suites"][args.suite],
+                                                     **({"context": args.context} if getattr(args, "context", None) else {})},
+                                                    indent=1))
     return worst
 
 
@@ -700,6 +707,8 @@ def main() -> int:
     u.add_argument("--snapshot", help="Hugging Face cache holding the pinned tokenizer snapshot")
     u.add_argument("--aiperf", help=f"AIPerf executable (default: uvx aiperf=={bench.SUITE['aiperf']})")
     u.add_argument("--no-checks", action="store_true", help="skip the pre-flight checks (sharar-eval check)")
+    u.add_argument("--context", type=lambda s: s.split(","),
+                   help="warm-decode at only these of the suite's contexts, comma-separated (e.g. 16k)")
     u.add_argument("--flush-cmd", help="warm-decode's --flush-cmd, for an engine without a flush endpoint")
     u.add_argument("--prime-passes", type=int, default=1, help="warm-decode's --prime-passes, for an engine that caches a prompt only after seeing it more than once")
     u.add_argument("--min-hit", type=float, help="overrides the suite's --min-hit, for an engine that caches prompts only "

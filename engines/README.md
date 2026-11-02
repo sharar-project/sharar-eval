@@ -10,6 +10,7 @@ engines/common/run.sh ENGINE SETTING [SUITE]
 engines/common/run.sh vllm nemotron-3.5-bolt            # vLLM, eugr's recipe for Bolt, suite cross-engine
 engines/common/run.sh sharar nemotron-3.5-bolt          # Sharar on the same model
 engines/common/run.sh vllm qwen3.8-27b smoke            # a few-minute check
+CONTEXT=16k engines/common/run.sh tensorfold qwen3.8-flash-next   # the suite's 16k cells only (suite --context)
 ```
 
 `run.sh` reserves the Spark (`~/.sp-claim`, the file the `sp` driver uses), starts the engine with its memory guard,
@@ -33,6 +34,12 @@ Every engine is set to decode at least 32 requests at once, the suite's largest 
 and Sharar's `--throughput` 16 for these models, so both are raised to 32 and nothing else is changed. The
 Flash-Next rows serve different checkpoints (NVIDIA's FP4-Local in vLLM's recipe, RadixArk's NVFP4 in Sharar), so
 speed differences there include the quantization.
+
+[TensorFold](tensorfold/README.md) (MiaAI-Lab's one-Spark recipe, TensorFold 1.1.4) serves `qwen3.8-flash-next` only, on
+NVIDIA's FP4-Local like vLLM, one prompt size per run (`CONTEXT=8k`, ...). `qwen3.8-flash-next`: 16 streams of 40,960
+tokens inside the budget (the recipe: 5 of 262,144), vision off. `qwen3.8-flash-next-maxfit`: as many warm requests as
+fit one GB10, outside the budget (32 at 8k and 16k, 16 at 32k). Its README explains the sizing: every stream gets its
+window at start and each warm prompt is kept as a second copy.
 
 ## Rules every baseline follows
 
