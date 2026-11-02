@@ -63,7 +63,7 @@ class Handler(BaseHTTPRequestHandler):
                                     'tools': len(body.get('tools') or []), 'n': n,
                                     **{k: body.get(k) for k in ('max_completion_tokens', 'max_tokens', 'ignore_eos',
                                                                 'temperature', 'top_p', 'top_k', 'chat_template_kwargs',
-                                                                'accept_top_k')}}) + '\n')
+                                                                'tool_choice', 'accept_top_k')}}) + '\n')
         call = bool(body.get('tools')) and len(msgs) % 2 == 0
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')

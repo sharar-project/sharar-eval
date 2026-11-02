@@ -36,6 +36,12 @@ NLTK_PACKAGES = ("tokenizers/punkt", "tokenizers/punkt_tab", "corpora/stopwords"
 MMLU = "https://huggingface.co/datasets/cais/mmlu/resolve/c30699e8356da336a370243923dbaf21066bb9fe/all"
 HOTPOT = "https://huggingface.co/datasets/hotpotqa/hotpot_qa/resolve/1908d6afbbead072334abe2965f91bd2709910ab/distractor"
 LCB = "https://huggingface.co/datasets/livecodebench/code_generation_lite/resolve/0fe84c3912ea0c4d4a78037083943e8f0c4dd505"
+AGENTPERF = f"{GH}/ArtificialAnalysis/aa-agentperf-local/1fe80568c1e4b81b338ef276ccc6874a36d3704d/agentperf_local/data/replays/agentperf-default-v1"
+AGENTPERF_TASKS = ("task_meeting_council_budget", "task_meeting_council_votes", "task_k8s_debugging",
+                   "task_meeting_searchable_index", "task_skill_search", "django__django-15851", "django__django-14500",
+                   "sphinx-doc__sphinx-10614")
+AGENTPERF_FILES = ["replay/agentperf-default-v1/manifest-arm64.json",
+                   *(f"replay/agentperf-default-v1/traces/{t}.jsonl" for t in AGENTPERF_TASKS)]
 FILES = {  # dataset path: pinned source URL
     "accuracy/gsm8k_test.jsonl": f"{GH}/openai/grade-school-math/3101c7d5072418e28b9008a6636bde82a006892c/grade_school_math/data/test.jsonl",
     "accuracy/HumanEval.jsonl.gz": f"{GH}/openai/human-eval/6d43fb980f9fee3c892a914eda09951f772ad10d/data/HumanEval.jsonl.gz",
@@ -54,6 +60,8 @@ FILES = {  # dataset path: pinned source URL
     # LiveCodeBench release_v6's last file: the 175 problems release_v6 added (evals/lcb.py)
     "lcb/test6.jsonl": f"{LCB}/test6.jsonl",
     "long_context/tokenizer.json": "https://huggingface.co/RadixArk/Qwen3.8-27B-NVFP4/resolve/319f741cce68d7914884900c138a1fbb70a42f30/tokenizer.json",
+    # Agent replay (evals/agent_replay.py): Artificial Analysis agentperf-local v0.3.4's default replay, 8 tasks, 168 turns
+    **{name: f"{AGENTPERF}/{name.split('/', 2)[2]}" for name in AGENTPERF_FILES},
 }
 # Needle corpus: CPython 3.12.7's Lib/*.py in path order, cut after the file that passes CORPUS_CHARS
 # (about 800K tokens, enough for the default lengths 10K-262K on fresh slices).
@@ -112,14 +120,25 @@ def build_corpus() -> bytes:
     return "".join(parts).encode()
 
 
-def fetch() -> None:
-    for name, url in FILES.items():
+def fetch_files(names) -> None:
+    """Download the named FILES entries that are missing."""
+    for name in names:
         path = ROOT / name
         if path.is_file():
             continue
         print(f"fetch {name}", flush=True)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(download(url))
+        path.write_bytes(download(FILES[name]))
+
+
+def ensure(names: list[str]) -> dict[str, str]:
+    """Fetch the named pinned files if missing, then check them (an eval's own files, without a full fetch)."""
+    fetch_files(names)
+    return check(names)
+
+
+def fetch() -> None:
+    fetch_files(FILES)
     he = ROOT / "accuracy/HumanEval.jsonl"
     if not he.is_file():
         he.write_bytes(gzip.decompress((ROOT / "accuracy/HumanEval.jsonl.gz").read_bytes()))

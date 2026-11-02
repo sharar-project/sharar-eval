@@ -4,6 +4,8 @@
     sharar-eval efficiency aggregated-decode ... --tests code --concurrency 1,4,16,64 --slots 8
     sharar-eval efficiency warm-decode --engine sharar --engine-version V --url http://127.0.0.1:30004 --out DIR \
         [--context 8k,16k] [--categories low_entropy,mixed,high_entropy] [--concurrency 1,2,4,8,16,32,64]
+    sharar-eval efficiency agent-replay --engine sharar --engine-version V --url http://127.0.0.1:30004 --out DIR \
+        [--agents 1,8,16,32] [--tool-mode none|recorded] [--replay DIR]
     sharar-eval efficiency suite --suite cross-engine --engine E --engine-version V --url URL --out DIR
     sharar-eval efficiency report DIR [DIR ...]
 
@@ -24,8 +26,8 @@ together, each forced to --output-tokens with ignore_eos. Priming per cell, not 
 that keeps fewer prompts cached would otherwise evict the earliest ones, the very prompts the small cells reuse. Per cell:
 - window: from the moment the last request starts decoding to the moment the first one ends, all N are decoding and
   nobody prefills;
-- aggregate decode tok/s: tokens streamed inside the window over its length (a request's tokens are spread evenly over
-  its streamed chunks: exact at one token a chunk, an average where a chunk carries a speculative burst);
+- aggregate decode tok/s: tokens streamed inside the window over its length (each chunk counted with its own tokens,
+  see "token counts per chunk" below);
 - per-stream decode tok/s: each request's (tokens - 1) over its first to last token, median and slowest;
 - longest pause: the longest gap between two chunks of one request inside the window (an engine that sets a request
   aside while the others decode shows it here; it already lowers both rates);
@@ -46,10 +48,17 @@ The engine must already be serving at --url; nothing here starts or stops it. It
 cached prompt tokens (usage.prompt_tokens_details.cached_tokens): without them the hit column is "-" and nothing
 confirms prefill was skipped. A flush endpoint (--engine) is optional.
 suite: every part of a named suite (workloads/efficiency_v1.json) against one URL, into OUT/<part>.
+agent-replay: recorded coding-agent tasks (agentperf-local's agentperf-default-v1, 8 tasks, 168 turns, pinned) at N
+agents at once, each agent sending one turn at a time and taking the next task when its own ends; evals/agent_replay.py
+has the method, the same as engine-bench's agentload.py. Each turn generates exactly its recorded length (ignore_eos),
+so every engine does the same work. Per level: tasks per hour, task time p50 / p90, aggregate output tok/s (output
+tokens over wall time), pooled decode tok/s, TTFT and turn time p50 / p95, the cache share the server reports, failed
+turns. Records go to OUT/agents.jsonl (engine-bench's agents*.jsonl format), the summary to OUT/agents.csv.
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import random
@@ -444,6 +453,24 @@ def merge_rounds(parts: list[dict]) -> dict:
     return out
 
 
+def recompute_cell(cell_dir: Path, cell: dict, output_tokens: int, count=None) -> dict:
+    """A cell's summary again from its AIPerf records, with this version's maths: every burst (c<N>, c<N>-r1, ...)
+    rebuilt and merged as the run merged them. Speculation counters come from the server, not AIPerf's records, so each
+    burst keeps the ones it recorded."""
+    n, old = cell["n"], cell["summary"]
+    dirs = [cell_dir] + sorted(cell_dir.parent.glob(f"{cell_dir.name}-r*"), key=lambda d: int(d.name.rsplit("-r", 1)[1]))
+    dirs = [d for d in dirs if (d / "aiperf").is_dir()]
+    olds = old.get("rounds") or [old]
+    parts = []
+    for i, d in enumerate(dirs):
+        part = warm_summary(d / "aiperf", n, output_tokens, count)
+        spec = olds[i].get("spec") if i < len(olds) else None
+        if spec:
+            part["spec"] = spec
+        parts.append(part)
+    return parts[0] if len(parts) == 1 else merge_rounds(parts)
+
+
 def warm_decode(args) -> int:
     from evals.speed import model as snapshot_model
     from evals.suite import evals_tree
@@ -566,13 +593,118 @@ def prepare(args) -> int:
     return bench.prepare(argparse.Namespace(suite="warm-decode", snapshot=args.snapshot, aiperf=args.aiperf))
 
 
+# ---------------------------------------------------------------- agent-replay
+
+def agent_replay(args) -> int:
+    from evals import agent_replay as ar
+    from evals import datasets
+    from evals.suite import evals_tree
+    url = args.url.rstrip("/")
+    if args.engine not in bench.SUITE["engines"]:
+        raise SystemExit(f"unknown engine {args.engine!r}; known: {', '.join(bench.SUITE['engines'])}")
+    if not bench.alive(url):
+        raise SystemExit(f"no server answers at {url}/v1/models: start the engine first")
+    if args.replay:
+        replay, pins = args.replay, None
+    else:
+        replay, pins = datasets.ROOT / "replay" / "agentperf-default-v1", datasets.ensure(datasets.AGENTPERF_FILES)
+    tasks = ar.load_tasks(replay)
+    model = args.model or bench.http(url + "/v1/models")["data"][0]["id"]
+    label = args.label or args.engine
+    record = {"mode": "agent-replay", "engine": args.engine, "engine_version": args.engine_version, "model": model,
+              "label": label, "agents": args.agents, "tool_mode": args.tool_mode,
+              "thinking": args.thinking, "tool_choice": args.tool_choice,
+              **({"inflight": args.inflight, "duration_s": args.duration, "primed": not args.no_prime} if args.inflight else {}),
+              **({"sessions": args.sessions} if args.sessions else {}),
+              "replay": str(args.replay) if args.replay else "agentperf-default-v1"}
+    args.out.mkdir(parents=True, exist_ok=True)
+    saved = args.out / "efficiency.json"
+    if saved.is_file() and json.loads(saved.read_text()) != record:
+        raise SystemExit(f"{saved} was written with other options: use another --out, or the same options to resume")
+    saved.write_text(json.dumps(record, indent=1))
+    seed = args.seed if args.seed is not None else time.time_ns()
+    (args.out / "run.json").write_text(json.dumps({**record, "url": url, "evals_tree": evals_tree(),
+                                                   "server": bench.describe(url, args.engine), "seed": seed,
+                                                   "replay_sha256": pins, "tasks": len(tasks),
+                                                   "turns": sum(len(t["rows"]) for t in tasks),
+                                                   "started": time.strftime("%Y-%m-%dT%H:%M:%S")}, indent=1))
+    if not args.no_checks:
+        from evals import checks
+        result = checks.run(url, model)
+        (args.out / "checks.json").write_text(json.dumps(result, indent=1))
+        for c in result["checks"]:
+            print(checks.line(c), flush=True)
+    path = args.out / "agents.jsonl"
+    records = read_records(path)
+    done = {r["agents"] for r in records if r["kind"] == "agent_level" and r["label"] == label}
+    # a level cut short leaves turns without a level record: drop them, so a rerun's turns are not pooled with them
+    keep = [r for r in records if r["label"] != label or r["agents"] in done]
+    if len(keep) != len(records):
+        path.write_text("".join(json.dumps(r) + "\n" for r in keep))
+    print(f"{label} @ {url}: {record['replay']}, {len(tasks)} tasks, {sum(len(t['rows']) for t in tasks)} turns, "
+          f"exact output lengths, thinking {args.thinking}, tool_choice {args.tool_choice}, tool time {args.tool_mode}"
+          + (f", {args.sessions} conversations open, agents taking turns" if args.sessions else "")
+          + (f", steady state: --agents open, {args.inflight} requests in flight, {args.duration:.0f} s per level"
+             if args.inflight else ""), flush=True)
+    print(REPLAY_HEADER, flush=True)
+    rows_ = {r["agents"]: r for r in ar.summarize(keep) if r["label"] == label}
+    for n in args.agents:
+        if n in done:
+            print(replay_row(rows_[n]), "(done)", flush=True)
+            continue
+        a = argparse.Namespace(url=url, model=model, label=label, tool_mode=args.tool_mode, sessions=args.sessions,
+                               thinking=args.thinking, tool_choice=args.tool_choice)
+        with path.open("a") as log:
+            lv = (ar.steady_level(a, tasks, n, args.inflight, log, random.Random(f"{seed}/{n}"), args.duration,
+                                  prime=not args.no_prime) if args.inflight else ar.level(a, tasks, n, log, random.Random(f"{seed}/{n}")))
+            log.write(json.dumps(lv) + "\n")
+        summary = [r for r in ar.summarize(read_records(path)) if r["label"] == label and r["agents"] == n][0]
+        print(replay_row(summary), flush=True)
+        if not bench.alive(url):
+            print(f"the server at {url} stopped answering; the remaining levels are not run", file=sys.stderr)
+            return 2
+    write_csv(args.out)
+    return 0
+
+
+def read_records(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
+
+
+def write_csv(run: Path) -> list[dict]:
+    """OUT/agents.csv: the per-level summary (engine-bench's agentsum.py output)."""
+    from evals import agent_replay as ar
+    out = ar.summarize(read_records(run / "agents.jsonl"))
+    if out:
+        with (run / "agents.csv").open("w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(out[0]))
+            w.writeheader()
+            w.writerows(out)
+    return out
+
+
+REPLAY_HEADER = (f"{'agents':>6s} {'tasks':>5s} {'turns':>5s} {'wall s':>7s} {'tasks/h':>7s} {'task p50':>8s} {'p90':>6s} "
+                 f"{'agg tok/s':>9s} {'decode':>6s} {'TTFT p50':>8s} {'p95':>6s} {'cached':>6s} {'failed':>6s}")
+
+
+def replay_row(s) -> str:
+    f = bench.fmt
+    share = s.get("cache_share")
+    return (f"{s['agents']:>6d} {s['tasks']:>5d} {s['turns']:>5d} {f(s.get('wall_s'), '.0f'):>7s} {f(s.get('tasks_per_hour'), '.0f'):>7s} "
+            f"{f(s.get('task_p50_s'), '.0f'):>8s} {f(s.get('task_p90_s'), '.0f'):>6s} {f(s.get('aggregate_tok_s')):>9s} "
+            f"{f(s.get('decode_tok_s_pooled')):>6s} {f(s.get('ttft_p50_ms'), '.0f'):>8s} {f(s.get('ttft_p95_ms'), '.0f'):>6s} "
+            f"{'-' if share is None else f'{100 * share:.0f}%':>6s} {s['failed_turns']:>6d}")
+
+
 # ---------------------------------------------------------------- suite
 
 SUITES = json.loads((bench.PACKAGE / "workloads" / "efficiency_v1.json").read_text())
-PARTS = ("warm-decode",)  # in run order
+PARTS = ("warm-decode", "agent-replay")  # in run order
 DEFAULTS = {"warm-decode": {"min_hit": 0.95, "max_tokens_in_flight": None, "questions": 1, "balance": False, "exclude_sources": None, "prompt_seed": 0,
                             "fixed_prompts": False, "min_bursts": 1, "flush_cmd": None,
-                            "prime_passes": 1}}  # what the mode's flags default to
+                            "prime_passes": 1},
+            "agent-replay": {"label": None, "replay": None, "seed": None, "sessions": None, "thinking": "server",
+                             "tool_choice": "none", "inflight": None, "duration": 900, "no_prime": False}}  # what the mode's flags default to
 
 
 def suite(args) -> int:
@@ -589,13 +721,20 @@ def suite(args) -> int:
         print(f"\n== {args.suite}: {part}", flush=True)
         engine_opts = {k: getattr(args, k) for k in ("flush_cmd", "prime_passes", "min_hit")
                        if part == "warm-decode" and getattr(args, k, None) not in (None, 1)}  # how the engine caches, not what is measured
+        if part == "warm-decode" and getattr(args, "context", None):  # some of the suite's contexts: its cells, fewer of them
+            extra = [c for c in args.context if c not in options["context"]]
+            if extra:
+                raise SystemExit(f"--context {','.join(extra)} is not in suite {args.suite} ({','.join(options['context'])})")
+            options = {**options, "context": args.context}
         ns = argparse.Namespace(**common, **{**DEFAULTS[part], **options, **engine_opts}, out=args.out / part)  # the suite overrides defaults
-        worst = max(worst, warm_decode(ns))
+        worst = max(worst, (warm_decode if part == "warm-decode" else agent_replay)(ns))
         if not bench.alive(args.url.rstrip("/")):
             print(f"the server at {args.url} stopped answering; the remaining parts are not run", file=sys.stderr)
             return 2
     (args.out / "suite.json").write_text(json.dumps({"suite": args.suite, "version": SUITES["version"],
-                                                     "parts": SUITES["suites"][args.suite]}, indent=1))
+                                                     "parts": SUITES["suites"][args.suite],
+                                                     **({"context": args.context} if getattr(args, "context", None) else {})},
+                                                    indent=1))
     return worst
 
 
@@ -607,7 +746,14 @@ def report(args) -> int:
                                       recompute=getattr(args, "recompute", False)))
             continue
         mode = json.loads((run / "efficiency.json").read_text())["mode"]
-        if mode == "warm-decode":
+        if mode == "agent-replay":
+            meta = json.loads((run / "run.json").read_text())
+            print(f"{run}: engine {meta['engine']} ({meta['engine_version']}), agent replay {meta['replay']}, "
+                  f"tool time {meta['tool_mode']}")
+            print(REPLAY_HEADER)
+            for s in write_csv(run):
+                print(replay_row(s) + ("" if s["label"] == meta["label"] else f"  ({s['label']})"))
+        elif mode == "warm-decode":
             meta = json.loads((run / "run.json").read_text())
             print(f"{run}: engine {meta['engine']} ({meta['engine_version']}), warm decode, {meta['output_tokens']} tokens per answer")
             print(WARM_HEADER)
@@ -620,7 +766,7 @@ def report(args) -> int:
                         if count is None and (p.parent / "aiperf" / "profile_export_raw.jsonl").is_file():
                             from evals.speed import model as snapshot_model
                             count = token_counter(str(snapshot_model.snapshot_dir(None)))
-                        cell["summary"] = warm_summary(p.parent / "aiperf", cell["n"], meta["output_tokens"], count)
+                        cell["summary"] = recompute_cell(p.parent, cell, meta["output_tokens"], count)
                         p.write_text(json.dumps(cell, indent=1))
                     print(warm_row(context, category, cell["n"], cell["summary"]))
                 if (group / "stopped.json").is_file():
@@ -700,16 +846,43 @@ def main() -> int:
     u.add_argument("--snapshot", help="Hugging Face cache holding the pinned tokenizer snapshot")
     u.add_argument("--aiperf", help=f"AIPerf executable (default: uvx aiperf=={bench.SUITE['aiperf']})")
     u.add_argument("--no-checks", action="store_true", help="skip the pre-flight checks (sharar-eval check)")
+    u.add_argument("--context", type=lambda s: s.split(","),
+                   help="warm-decode at only these of the suite's contexts, comma-separated (e.g. 16k)")
     u.add_argument("--flush-cmd", help="warm-decode's --flush-cmd, for an engine without a flush endpoint")
     u.add_argument("--prime-passes", type=int, default=1, help="warm-decode's --prime-passes, for an engine that caches a prompt only after seeing it more than once")
     u.add_argument("--min-hit", type=float, help="overrides the suite's --min-hit, for an engine that caches prompts only "
                                                  "up to coarse checkpoints (its best hit is under the suite's)")
+    a = sub.add_parser("agent-replay", help="recorded agent tasks (agentperf-default-v1) at N agents at once")
+    a.add_argument("--engine", required=True, help="an engine of bench_v1.json (openai for any other server)")
+    a.add_argument("--engine-version", required=True, help="what is serving: version, commit, profile; recorded in run.json")
+    a.add_argument("--url", required=True, help="the running engine's base URL, e.g. http://127.0.0.1:30004")
+    a.add_argument("--out", type=Path, required=True)
+    a.add_argument("--agents", type=ints, default=[1, 4, 8, 16], help="agents at once, one level each, comma-separated")
+    a.add_argument("--tool-mode", choices=("none", "recorded"), default="none",
+                   help="recorded: sleep the recorded tool time after each turn (agentperf-local's fixed_delay)")
+    a.add_argument("--thinking", choices=("server", "on", "off"), default="server",
+                   help="server: send nothing about thinking, the server's default (agentperf-local); on/off: send "
+                   "chat_template_kwargs enable_thinking")
+    a.add_argument("--tool-choice", choices=("none", "unset"), default="none",
+                   help="none: tool_choice none with the tools, no tool-call grammar (agentperf-local --tool-choice none, "
+                   "NVIDIA's DGX Spark result); unset: send no tool_choice (agentperf-local's default)")
+    a.add_argument("--inflight", type=int, help="steady state: each --agents value is the open agents (conversations), "
+                   "at most this many requests in flight, for --duration seconds each (agent_replay.steady_level)")
+    a.add_argument("--duration", type=float, default=900, help="with --inflight: seconds of turns per level")
+    a.add_argument("--no-prime", action="store_true", help="with --inflight: start every conversation cold at turn 0")
+    a.add_argument("--sessions", type=int, help="conversations open at once (task copies), the agents taking turns from "
+                   "them, longest-waiting first (default: each agent runs one task to its end)")
+    a.add_argument("--label", help="the records' label (default: --engine)")
+    a.add_argument("--replay", type=Path, help="an agentperf-local replay directory (default: the pinned copy, fetched if missing)")
+    a.add_argument("--seed", type=int, help="seed of the cache namespaces (default: the clock)")
+    a.add_argument("--model", help="served model name (default: the first of /v1/models)")
+    a.add_argument("--no-checks", action="store_true", help="skip the pre-flight checks (sharar-eval check)")
     r = sub.add_parser("report", help="tables of run directories")
     r.add_argument("runs", type=Path, nargs="+")
     r.add_argument("--recompute", action="store_true",
                    help="warm-decode: rebuild each cell's summary from its AIPerf records with this version (rewrites cell.json)")
     args = parser.parse_args()
-    return {"aggregated-decode": aggregated_decode, "warm-decode": warm_decode,
+    return {"aggregated-decode": aggregated_decode, "warm-decode": warm_decode, "agent-replay": agent_replay,
             "suite": suite, "prepare": prepare, "report": report}[args.mode](args)
 
 

@@ -401,7 +401,7 @@ def test_report_of_a_suite_run_reports_its_parts(tmp_path, capsys):
 
 
 def test_every_suite_keeps_the_cache_hit_floor_vllm_needs():
-    assert all(s["warm-decode"]["min_hit"] == 0.6 for s in efficiency.SUITES["suites"].values())
+    assert all(s["warm-decode"]["min_hit"] == 0.6 for s in efficiency.SUITES["suites"].values() if "warm-decode" in s)
 
 
 def test_prime_passes_send_each_burst_more_than_once_before_timing(tmp_path, monkeypatch):
@@ -435,3 +435,36 @@ def test_prime_passes_send_each_burst_more_than_once_before_timing(tmp_path, mon
     assert efficiency.warm_decode(args) == 0
     assert calls == ["prime-c1", "prime2-c1", "c1"]
     assert json.loads((args.out / "efficiency.json").read_text())["prime_passes"] == 2
+
+
+def test_suite_context_runs_only_those_of_its_contexts(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(efficiency, "warm_decode", lambda ns: seen.append(ns.context) or 0)
+    monkeypatch.setattr(efficiency.bench, "alive", lambda url: True)
+    args = argparse.Namespace(suite="cross-engine", engine="openai", engine_version="x", url="http://x", model=None,
+                              snapshot=None, aiperf=None, no_checks=True, out=tmp_path, flush_cmd=None, prime_passes=1,
+                              min_hit=None, context=["16k"])
+    assert efficiency.suite(args) == 0
+    assert seen == [["16k"]] and json.loads((tmp_path / "suite.json").read_text())["context"] == ["16k"]
+    args.context = ["4k"]
+    with pytest.raises(SystemExit):
+        efficiency.suite(args)
+
+
+def test_recompute_rebuilds_every_burst_of_a_cell_and_merges_them(tmp_path, monkeypatch):
+    group = tmp_path / "warm" / "8k-low_entropy"
+    for d in ("c4", "c4-r1", "c4-r2"):
+        (group / d / "aiperf").mkdir(parents=True)
+    rates = {"c4": 100.0, "c4-r1": 110.0, "c4-r2": 120.0}
+    monkeypatch.setattr(efficiency, "warm_summary", lambda a, n, want, count=None: {
+        "requests": n, "errors": 0, "short": 0, "held_back": 0, "aggregate_decode_tok_s": rates[a.parent.name],
+        "per_stream_tok_s_p50": 25.0, "per_stream_tok_s_min": 20.0, "cache_hit_min": 0.9, "prompt_tokens_avg": 8000})
+    spec = {"rounds": 10, "proposed": 30, "accepted": 20, "emitted": 30, "depth": 3}
+    old = {"rounds": [{"aggregate_decode_tok_s": 1.0, "spec": spec}, {"aggregate_decode_tok_s": 1.0, "spec": spec},
+                      {"aggregate_decode_tok_s": 1.0, "spec": spec}]}
+    out = efficiency.recompute_cell(group / "c4", {"n": 4, "summary": old}, 1024)
+    assert [r["aggregate_decode_tok_s"] for r in out["rounds"]] == [100.0, 110.0, 120.0]
+    assert out["aggregate_decode_tok_s"] == 110.0 and out["requests"] == 12
+    assert out["rounds"][0]["spec"]["proposed"] == 30 and out["spec"]["proposed"] == 90
+    single = efficiency.recompute_cell(group / "c4", {"n": 4, "summary": {"spec": spec}}, 1024)
+    assert len(list(group.glob("c4-r*"))) == 2 and "rounds" in single  # bursts on disk are merged even if the old summary had none
