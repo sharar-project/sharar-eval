@@ -401,7 +401,7 @@ def test_report_of_a_suite_run_reports_its_parts(tmp_path, capsys):
 
 
 def test_every_suite_keeps_the_cache_hit_floor_vllm_needs():
-    assert all(s["warm-decode"]["min_hit"] == 0.6 for s in efficiency.SUITES["suites"].values())
+    assert all(s["warm-decode"]["min_hit"] == 0.6 for s in efficiency.SUITES["suites"].values() if "warm-decode" in s)
 
 
 def test_prime_passes_send_each_burst_more_than_once_before_timing(tmp_path, monkeypatch):

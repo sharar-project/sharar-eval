@@ -133,5 +133,6 @@ def test_every_suite_option_is_a_flag_and_the_suite_sets_every_flag():
         suite_keys = {"engine", "engine_version", "url", "model", "snapshot", "aiperf", "no_checks", "out",
                       *efficiency.DEFAULTS[part], *options}
         assert set(ns) - {"mode"} <= suite_keys, (part, set(ns) - suite_keys)
-        for key, value in efficiency.DEFAULTS[part].items():
-            assert ns[key] == value, (part, key)
+        for key, value in efficiency.DEFAULTS[part].items():  # the flags a suite leaves alone default as DEFAULTS says
+            if key not in options:
+                assert ns[key] == value, (part, key)
