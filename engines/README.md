@@ -73,8 +73,8 @@ is run by hand: `serve.sh up SETTING DIR`, then `uv run sharar-eval efficiency a
 | Nemotron 3.5 Bolt | nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB `cf2effc`, LiLiCorr DFlash; `-w3`: + 3-bit copies | the same `cf2effc`, LiLiCorr `449d241` | v1.1.6 via MiaAI-Lab's Bolt recipe `2cea422`, revision `a326822`, LiLiCorr `4c6a561` | nvidia's IQ2 GGUF `e0fecb6`, LiLiCorr GGUF `182d298` |
 | Nemotron 3.5 Super | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 `6aae0d6` + 3-bit copies, MTP | the same `6aae0d6`, LiLiCorr `292bf1e` | v1.1.7 release binary, the same `6aae0d6`, MTP | ggml-org Q4_0 GGUF `99144d1`, its LiLiCorr NVFP4 drafter |
 
-Weights: the 27B, Bolt and Super rows serve the same weights in every engine but llama.cpp (which cannot load these
-NVFP4 checkpoints and serves the GGUFs named above) (Bolt `a326822` and `cf2effc` have
+Weights: the 27B, Bolt and Super rows serve the same weights in every engine except llama.cpp, which cannot load these
+NVFP4 checkpoints and serves the GGUFs named above (Bolt `a326822` and `cf2effc` have
 identical weight files; only README.md and explainability.md differ). Flash-Next does not: Sharar serves RadixArk's
 all-NVFP4 build, vLLM and TensorFold NVIDIA's FP4-Local (MXFP8 attention, mixer and most experts, NVFP4 elsewhere), so
 speed differences there include the quantization. Sharar's 3-bit copies are extra decode-time copies of the trunk

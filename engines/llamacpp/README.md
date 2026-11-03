@@ -131,7 +131,8 @@ For a few-minute check on one server, `LLAMA_ARGS="-cram 0" engines/common/run.s
 - Warm decode is 16k only, `cross-engine` options, one server per N:
   - Flash-Next N 1-8; N 16 and 32 do not load. Its published N 1 and 2 ran on one 2-slot server with `-cram 1024`
     (one state to bring back at most), N 4 and 8 on N slots with `-cram 0`, as `warm.sh` runs every N.
-  - Qwen3.8-27B and Bolt N 1-32.
+  - Qwen3.8-27B and Bolt N 1-32. 27B's published N 1 ran with `-cram 1024` (its first server, before the `-cram 0`
+    fix; one slot, so nothing to bring back), N 2-32 with `-cram 0` as `warm.sh` runs every N.
   - Super N 1-16: at N 32 the server started with 9 GiB free and its requests failed while the prompts were loading
     (the cell is recorded as stopped, not measured).
 - Agent replay is `cross-engine-agents` at 1, 8, 16 and 32 agents on the AA traces as published, and 1, 8 and 16
