@@ -119,6 +119,9 @@ the engine caches, not what is measured.
 (`engines/ENGINE/settings/SETTING.env`, named after the model), sends one request with the suite's sampling and logs
 whether the engine thought (`sampling-probe.json`), then runs
 
+llama.cpp fixes its slot count at start, so it runs one server per N with exactly N slots
+(`engines/llamacpp/warm.sh SETTING`, the same `cross-engine` options; 16k only in the published rows).
+
 ```sh
 sharar-eval efficiency suite --suite SUITE --engine $EVAL_ENGINE --engine-version "<versions.env label>; setting SETTING: <its description> (<host>)" \
   --url $URL --out $OUT/suite [--context $CONTEXT] [--flush-cmd ...] [--prime-passes $PRIME_PASSES] [--min-hit $MIN_HIT]

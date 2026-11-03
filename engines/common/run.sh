@@ -5,7 +5,8 @@
 #   engines/common/run.sh ENGINE SETTING [SUITE]
 #   engines/common/run.sh vllm nemotron-3.5-bolt          # example
 #
-# ENGINE is a folder of engines/ (vllm, sharar, tensorfold); SETTING a file in its settings/ without .env, named after the model;
+# ENGINE is a folder of engines/ (vllm, sharar, tensorfold, llamacpp); SETTING a file in its settings/ without .env, named after the model;
+# llama.cpp needs one server per N: its warm decode and agent replay run through engines/llamacpp/warm.sh and agents.sh;
 # SUITE a suite of evals/workloads/efficiency_v1.json (default cross-engine; smoke for a few-minute check).
 # FLUSH_RESTART=1 restarts the engine before every warm-decode burst (sharar-eval's --flush-cmd), for an engine with
 # no cache flush endpoint; a setting's PRIME_PASSES (sharar-eval's --prime-passes) primes each burst more than once,
@@ -36,7 +37,7 @@ RESERVE_OWNER=${RESERVE_OWNER:-$ENGINE-baseline}
 reserve "$RESERVE_OWNER" "$ENGINE baseline, $SETTING, suite $SUITE"
 UP=0
 # down also when stopped while the engine was still starting: its serve.sh had launched it once it left a marker here
-finish() { { [ $UP = 1 ] || [ -e "$OUT/vllm.running" ] || [ -e "$OUT/sharar.pid" ] || [ -e "$OUT/tf.running" ]; } && bash "$E/serve.sh" down "$OUT" >> "$LOG" 2>&1
+finish() { { [ $UP = 1 ] || [ -e "$OUT/vllm.running" ] || [ -e "$OUT/sharar.pid" ] || [ -e "$OUT/tf.running" ] || [ -e "$OUT/llama-server.pid" ]; } && bash "$E/serve.sh" down "$OUT" >> "$LOG" 2>&1
   touch "$OUT/.done"; release; }
 trap finish EXIT
 rm -f "$OUT/.done"

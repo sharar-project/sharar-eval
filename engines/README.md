@@ -33,14 +33,15 @@ from the environment too.
 The settings behind the published cross-engine numbers. Warm decode: suite `cross-engine` unless marked; figures take
 each engine's fastest setting at each N. Agent replay: suite `cross-engine-agents`.
 
-| Model | Warm decode: Sharar | vLLM | TensorFold | Agent replay: Sharar | vLLM | TensorFold |
-|---|---|---|---|---|---|---|
-| Qwen3.8-27B | `qwen3.8-27b`; `-fast` (n4); `-b64` (n64) | `qwen3.8-27b-d4` (`qwen3.8-27b`, 8 drafts, also run); `-d4-s64` (n64) | `qwen3.8-27b-maxfit`, one `CONTEXT` per run | `qwen3.8-27b` | `qwen3.8-27b-d4` | `qwen3.8-27b-maxfit`, `CONTEXT=agents` |
-| Qwen3.8-Flash-Next | `qwen3.8-flash-next`; `-fast` (n4); `-b64` (n64) | `qwen3.8-flash-next-d2` | `qwen3.8-flash-next` (budget) and `-maxfit`, one `CONTEXT` per run | `qwen3.8-flash-next` | `qwen3.8-flash-next-d2` | `qwen3.8-flash-next-p32` with `TF_PARALLEL=16 TF_CONTEXT=65536 TF_RESERVE_GIB=9 TF_ENV=TF_FLASHNEXT_HEAD_KV=fp8` |
-| Nemotron 3.5 Bolt | `nemotron-3.5-bolt` and `-w3` (3-bit copies; ran as `nemotron-3.5-bolt-w3hf`, 20261029-2311-spark-e108), fastest per N; `-fast` (n4); `-b64` (n64) | `nemotron-3.5-bolt`; `-s64` (n64) | `nemotron-3.5-bolt-maxfit`, one `CONTEXT` per run | `nemotron-3.5-bolt-w3` | `nemotron-3.5-bolt-m086` | `nemotron-3.5-bolt-maxfit`, `CONTEXT=agents` |
-| Nemotron 3.5 Super | `nemotron-3.5-super`; `-fast` (n4); `-b64` (n64) | `nemotron-3.5-super-d3` (`nemotron-3.5-super`, 7 drafts, also run) | `nemotron-3.5-super-maxfit`, one `CONTEXT` per run | `nemotron-3.5-super` | `nemotron-3.5-super-d3` (the note-removed replay ran `-d3-m084`: the box could not free 0.86) | `nemotron-3.5-super-maxfit`, `CONTEXT=agents` |
+| Model | Warm decode: Sharar | vLLM | TensorFold | llama.cpp (16k) | Agent replay: Sharar | vLLM | TensorFold | llama.cpp |
+|---|---|---|---|---|---|---|---|---|
+| Qwen3.8-27B | `qwen3.8-27b`; `-fast` (n4); `-b64` (n64) | `qwen3.8-27b-d4` (`qwen3.8-27b`, 8 drafts, also run); `-d4-s64` (n64) | `qwen3.8-27b-maxfit`, one `CONTEXT` per run | `qwen3.8-27b-dflash2`, `warm.sh` | `qwen3.8-27b` | `qwen3.8-27b-d4` | `qwen3.8-27b-maxfit`, `CONTEXT=agents` | `qwen3.8-27b-dflash2`, `agents.sh` |
+| Qwen3.8-Flash-Next | `qwen3.8-flash-next`; `-fast` (n4); `-b64` (n64) | `qwen3.8-flash-next-d2` | `qwen3.8-flash-next` (budget) and `-maxfit`, one `CONTEXT` per run | `qwen3.8-flash-next-p`, `warm.sh` (N 1-8) | `qwen3.8-flash-next` | `qwen3.8-flash-next-d2` | `qwen3.8-flash-next-p32` with `TF_PARALLEL=16 TF_CONTEXT=65536 TF_RESERVE_GIB=9 TF_ENV=TF_FLASHNEXT_HEAD_KV=fp8` | `qwen3.8-flash-next-p`, `agents.sh` (32 agents on 16 slots) |
+| Nemotron 3.5 Bolt | `nemotron-3.5-bolt` and `-w3` (3-bit copies; ran as `nemotron-3.5-bolt-w3hf`, 20261029-2311-spark-e108), fastest per N; `-fast` (n4); `-b64` (n64) | `nemotron-3.5-bolt`; `-s64` (n64) | `nemotron-3.5-bolt-maxfit`, one `CONTEXT` per run | `nemotron-3.5-bolt-gguf`, `warm.sh` | `nemotron-3.5-bolt-w3` | `nemotron-3.5-bolt-m086` | `nemotron-3.5-bolt-maxfit`, `CONTEXT=agents` | `nemotron-3.5-bolt-gguf`, `agents.sh` |
+| Nemotron 3.5 Super | `nemotron-3.5-super`; `-fast` (n4); `-b64` (n64) | `nemotron-3.5-super-d3` (`nemotron-3.5-super`, 7 drafts, also run) | `nemotron-3.5-super-maxfit`, one `CONTEXT` per run | `nemotron-3.5-super-gguf`, `warm.sh` (N 1-16) | `nemotron-3.5-super` | `nemotron-3.5-super-d3` (the note-removed replay ran `-d3-m084`: the box could not free 0.86) | `nemotron-3.5-super-maxfit`, `CONTEXT=agents` | `nemotron-3.5-super-gguf`, `agents.sh` (32 agents on 16 slots) |
 
-(n4) = suite `cross-engine-n4`, (n64) = suite `cross-engine-n64`. Every other setting in the engine folders is an
+(n4) = suite `cross-engine-n4`, (n64) = suite `cross-engine-n64`. llama.cpp runs one server per N
+(`engines/llamacpp/warm.sh`, 16k only) and per agent count (`engines/llamacpp/agents.sh`): see its README. Every other setting in the engine folders is an
 experiment or a fallback for a Spark with less free memory; each README says which. Copy-paste:
 
 ```sh
@@ -55,6 +56,8 @@ engines/common/run.sh vllm qwen3.8-27b-d4 cross-engine-agents
 CONTEXT=agents engines/common/run.sh tensorfold qwen3.8-27b-maxfit cross-engine-agents
 TF_PARALLEL=16 TF_CONTEXT=65536 TF_RESERVE_GIB=9 TF_ENV=TF_FLASHNEXT_HEAD_KV=fp8 \
   engines/common/run.sh tensorfold qwen3.8-flash-next-p32 cross-engine-agents
+CONTEXT=16k engines/llamacpp/warm.sh qwen3.8-27b-dflash2           # llama.cpp: one server per N
+engines/llamacpp/agents.sh qwen3.8-27b-dflash2                     # llama.cpp agent replay, 1/8/16/32 agents
 ```
 
 `run.sh` replays the published traces only. The replay with the SWE-bench turn messages removed (docs/agent-replay.md)
@@ -63,14 +66,15 @@ is run by hand: `serve.sh up SETTING DIR`, then `uv run sharar-eval efficiency a
 
 ## The engines and models
 
-| Model | [Sharar](sharar/README.md) (main `7387a45`) | [vLLM](vllm/README.md) (eugr's recipes `b62168e`) | [TensorFold](tensorfold/README.md) |
-|---|---|---|---|
-| Qwen3.8-27B | RadixArk/Qwen3.8-27B-NVFP4 `319f741` + 3-bit copies, DFlash2 | nvidia/Qwen3.8-27B-NVFP4 `482ca0f`, z-lab DFlash2 `50307d4` | v1.1.7 release binary, nvidia `482ca0f` + z-lab DFlash2 `50307d4` |
-| Qwen3.8-Flash-Next | RadixArk/Qwen3.8-Flash-Next-NVFP4 `7b71922` (NVFP4 throughout, 126 GB) + 3-bit copies, MTP | nvidia/Qwen3.8-Flash-Next-FP4-Local `b9ce18a` (mixed MXFP8 / NVFP4, 96 GB), MTP | v1.1.4 via MiaAI-Lab's recipe `fd3f43e`, nvidia FP4-Local `b9ce18a`, MTP |
-| Nemotron 3.5 Bolt | nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB `cf2effc`, LiLiCorr DFlash; `-w3`: + 3-bit copies | the same `cf2effc`, LiLiCorr `449d241` | v1.1.6 via MiaAI-Lab's Bolt recipe `2cea422`, revision `a326822`, LiLiCorr `4c6a561` |
-| Nemotron 3.5 Super | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 `6aae0d6` + 3-bit copies, MTP | the same `6aae0d6`, LiLiCorr `292bf1e` | v1.1.7 release binary, the same `6aae0d6`, MTP |
+| Model | [Sharar](sharar/README.md) (main `7387a45`) | [vLLM](vllm/README.md) (eugr's recipes `b62168e`) | [TensorFold](tensorfold/README.md) | [llama.cpp](llamacpp/README.md) (`547208d`) |
+|---|---|---|---|---|
+| Qwen3.8-27B | RadixArk/Qwen3.8-27B-NVFP4 `319f741` + 3-bit copies, DFlash2 | nvidia/Qwen3.8-27B-NVFP4 `482ca0f`, z-lab DFlash2 `50307d4` | v1.1.7 release binary, nvidia `482ca0f` + z-lab DFlash2 `50307d4` | ggml-org Q4_K_M GGUF `a316ea5` + z-lab DFlash2 `50307d4` converted to GGUF |
+| Qwen3.8-Flash-Next | RadixArk/Qwen3.8-Flash-Next-NVFP4 `7b71922` (NVFP4 throughout, 126 GB) + 3-bit copies, MTP | nvidia/Qwen3.8-Flash-Next-FP4-Local `b9ce18a` (mixed MXFP8 / NVFP4, 96 GB), MTP | v1.1.4 via MiaAI-Lab's recipe `fd3f43e`, nvidia FP4-Local `b9ce18a`, MTP | ISTA-DASLab GSQ-RCO IQ3_S GGUF `ed59f92`, ggml-org MTP head `92796c0` |
+| Nemotron 3.5 Bolt | nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB `cf2effc`, LiLiCorr DFlash; `-w3`: + 3-bit copies | the same `cf2effc`, LiLiCorr `449d241` | v1.1.6 via MiaAI-Lab's Bolt recipe `2cea422`, revision `a326822`, LiLiCorr `4c6a561` | nvidia's IQ2 GGUF `e0fecb6`, LiLiCorr GGUF `182d298` |
+| Nemotron 3.5 Super | nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 `6aae0d6` + 3-bit copies, MTP | the same `6aae0d6`, LiLiCorr `292bf1e` | v1.1.7 release binary, the same `6aae0d6`, MTP | ggml-org Q4_0 GGUF `99144d1`, its LiLiCorr NVFP4 drafter |
 
-Weights: the 27B, Bolt and Super rows serve the same weights in every engine (Bolt `a326822` and `cf2effc` have
+Weights: the 27B, Bolt and Super rows serve the same weights in every engine except llama.cpp, which cannot load these
+NVFP4 checkpoints and serves the GGUFs named above (Bolt `a326822` and `cf2effc` have
 identical weight files; only README.md and explainability.md differ). Flash-Next does not: Sharar serves RadixArk's
 all-NVFP4 build, vLLM and TensorFold NVIDIA's FP4-Local (MXFP8 attention, mixer and most experts, NVFP4 elsewhere), so
 speed differences there include the quantization. Sharar's 3-bit copies are extra decode-time copies of the trunk
@@ -78,7 +82,7 @@ speed differences there include the quantization. Sharar's 3-bit copies are extr
 publishes none for Bolt (hence `nemotron-3.5-bolt-w3`).
 
 KV cache: Sharar NVFP4 (27B, Flash-Next) or FP8 (Bolt, Super); vLLM FP8; TensorFold FP8 (Flash-Next, 27B), BF16
-(Bolt, the recipe's), the engine's default (Super).
+(Bolt, the recipe's), the engine's default (Super); llama.cpp q8_0.
 
 Every engine decodes at least 32 requests at once, the suite's largest N: vLLM's recipes run 8 sequences and Sharar's
 `--throughput` 16 (Bolt 4) at this commit, so both are raised to 32. Beyond that, each setting names its changes from
