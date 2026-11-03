@@ -139,6 +139,10 @@ engines/common/run.sh vllm qwen3.8-27b-d4 cross-engine-agents
 CONTEXT=agents engines/common/run.sh tensorfold qwen3.8-27b-maxfit cross-engine-agents
 ```
 
+llama.cpp runs one server per agent count, sized to hold every agent's history (`engines/llamacpp/agents.sh
+SETTING`, the same suite options; `REPLAY=` for the no-note copy): settings `qwen3.8-27b-dflash2`, `qwen3.8-flash-next-p`,
+`nemotron-3.5-bolt-gguf`, `nemotron-3.5-super-gguf`. Flash-Next and Super run 32 agents on 16 slots (the rest wait).
+
 What `run.sh` does for this suite: it reserves the Spark, starts the engine (`serve.sh up`), sends its sampling probe,
 runs `efficiency suite --suite cross-engine-agents` (thinking off, `tool_choice` unset, `--tool-mode none`, the pinned
 replay; `checks.json` first) and `report`, stops the engine. Its warm-decode knobs do nothing here: `PRIME_PASSES`,
