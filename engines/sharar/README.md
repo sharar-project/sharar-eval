@@ -2,7 +2,7 @@
 
 ## 1. What runs
 
-abdelfattah-lab/sharar `origin/main` at `7387a45` (2026-10-27), a plain checkout (`versions.env`). The checkpoints
+[Hibana](https://github.com/sharar-project/hibana) (formerly Sharar) `main` at `7387a45` (2026-10-27), a plain checkout (`versions.env`). The checkpoints
 are Sharar's own pins at that commit (`sharar/model/*/config.py`), fetched on the first start:
 
 | Setting | `sharar serve` | Port | Checkpoint | Changed from the profile |
@@ -20,7 +20,7 @@ KV cache and recurrent state are the profiles' defaults at this commit: NVFP4 KV
 Bolt and Super; int8 recurrent state (27B, Flash-Next, Bolt), FP16 with stochastic rounding (Super). Sharar sizes its
 own memory (no memory-share knob) and runs its own memory guard (4 GiB floor) beside `serve.sh`'s.
 
-`nemotron-3.5-super-b64` serves `026767d` (branch `fix/spec-graphs-workspace-rows`, on origin) from
+`nemotron-3.5-super-b64` serves `026767d` (branch `fix/spec-graphs-workspace-rows` of the private `abdelfattah-lab/sharar`, so this one setting needs access to it) from
 `~/sharar-7387a45-ws`: `7387a45` plus one fix that sizes FlashInfer's speculative-graph scratch by verified rows,
 without which Super does not start at max batch 64. It changes no computation.
 
@@ -33,10 +33,10 @@ preflight summary at the top of `server.log`.
 ## 2. One-time setup on a Spark
 
 ```sh
-git clone git@github.com:abdelfattah-lab/sharar.git ~/sharar-main-7387a45
+git clone https://github.com/sharar-project/hibana.git ~/sharar-main-7387a45
 git -C ~/sharar-main-7387a45 checkout --detach 7387a450e14e032ce1d5cbee2edca41326bea6d3
 # only for nemotron-3.5-super-b64
-git clone git@github.com:abdelfattah-lab/sharar.git ~/sharar-7387a45-ws
+git clone https://github.com/abdelfattah-lab/sharar.git ~/sharar-7387a45-ws  # 026767d is on the private repo only
 git -C ~/sharar-7387a45-ws checkout --detach 026767db640a50da9d7a817cce50f93ea614a891
 # only for nemotron-3.5-bolt-w3 / -w3-relaxed: the calibrated copies (public), where SHARAR_W3_CHECKPOINT points
 hf download shadowpa0327/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-sharar-w3 \

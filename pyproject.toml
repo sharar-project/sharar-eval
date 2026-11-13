@@ -7,6 +7,7 @@ name = "sharar-eval"
 version = "0.1.0"
 description = "Engine-agnostic HTTP evaluations for local inference servers"
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = "==3.12.*"  # the tested interpreter, as sharar's: uv installs and uses a 3.12
 dependencies = [
   "sacrebleu==2.4.3",

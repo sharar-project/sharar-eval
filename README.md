@@ -13,7 +13,7 @@ With [uv](https://docs.astral.sh/uv/):
 
 As a dependency of another project:
 
-    uv add "sharar-eval @ git+https://github.com/abdelfattah-lab/sharar-eval@<commit>"
+    uv add "sharar-eval @ git+https://github.com/sharar-project/sharar-eval@<commit>"
 
 ## Configuration
 
@@ -322,3 +322,7 @@ or the other engine's pinned image digest), plus the model revision and the serv
 ## Tests
 
     uv run pytest -q tests
+
+## License
+
+Apache License 2.0 ([LICENSE](LICENSE)). The vendored IFEval and IFBench checkers keep their own Apache 2.0 headers ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
