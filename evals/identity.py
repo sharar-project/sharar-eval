@@ -51,7 +51,7 @@ def main():
     r = sub.add_parser("run")
     r.add_argument("--url", required=True)
     r.add_argument("--out", required=True)
-    r.add_argument("--model", default="sharar")
+    r.add_argument("--model", default="hibana")
     r.add_argument("--api-key", default=None)
     r.add_argument("--max-tokens", type=int, default=384)
     c = sub.add_parser("compare")

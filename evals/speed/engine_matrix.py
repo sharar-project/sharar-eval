@@ -212,7 +212,7 @@ def run(url, frozen, output, profile, window, tok):
         if profile.startswith('atlas'):
             return atlas_stream(url,ids,outputs,rid,deadline)
         sampling = {'max_new_tokens': outputs, 'temperature': 0, 'ignore_eos': False}
-        # SGLang's native route uses sampling_seed; Sharar's route uses seed.
+        # SGLang's native route uses sampling_seed; Hibana's route uses seed.
         sampling['sampling_seed' if profile.startswith('sglang') else 'seed'] = 42
         row = stream_request(url, {'id': rid, 'sampling': sampling}, rid, ids=ids, deadline=deadline)
         row['text'] = tok.decode(row['output_ids'],skip_special_tokens=True)

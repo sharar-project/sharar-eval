@@ -54,7 +54,7 @@ def flush(url):
             if exc.code != 400:
                 raise
             reply = exc.read().decode()
-        # Sharar immediately invalidates future matches; existing readers keep
+        # Hibana immediately invalidates future matches; existing readers keep
         # their leases. SGLang refuses a flush until its active work drains.
         if isinstance(reply, str) and reply.startswith(('Cache flushed', 'Cache invalidated;')):
             return

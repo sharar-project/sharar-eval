@@ -26,7 +26,7 @@ SUITE=${3:-$SUITE}
 [ -f "$E/serve.sh" ] || die "no engine folder engines/$ENGINE"
 [ -f "$E/settings/$SETTING.env" ] || die "no setting '$SETTING' for $ENGINE: $(ls "$E/settings" | sed 's/\.env$//' | tr '\n' ' ')"
 . "$E/versions.env"; . "$E/settings/$SETTING.env"
-export SHARAR_RESULTS PYTHONDONTWRITEBYTECODE=1
+export SHARAR_RESULTS HIBANA_RESULTS PYTHONDONTWRITEBYTECODE=1
 command -v uv > /dev/null || die "uv is not on PATH (sharar-eval runs through uv run): add its directory to PATH"
 case " $AVOID_HOSTS " in *" $(hostname) "*)
   [ "${RUN_ON_ANY_HOST:-0}" = 1 ] || die "$(hostname) is in AVOID_HOSTS ($AVOID_HOSTS): benchmark on another Spark, or set RUN_ON_ANY_HOST=1" ;; esac

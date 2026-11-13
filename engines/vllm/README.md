@@ -28,7 +28,7 @@ after the recipe's arguments, so they win:
 The middle three do not change decoding. For Bolt and Super each burst is primed twice (`PRIME_PASSES=2`; `-d3`:
 three times): the recipes' Mamba shared-prefix checkpoints keep a prompt only once vLLM has seen it twice. Their
 prefix cache reuses a prompt only up to a Mamba-block boundary, so Bolt and Super `-d3` run with a 50% cache-hit floor
-(`MIN_HIT=0.5`). Super's revision is the one Sharar pins; Hugging Face's later `da5b265` only deletes a backup chat
+(`MIN_HIT=0.5`). Super's revision is the one Hibana pins; Hugging Face's later `da5b265` only deletes a backup chat
 template.
 
 Variants of these four. The settings with a suffix after `-d2` source `qwen3.8-flash-next-d2` and add one flag; the

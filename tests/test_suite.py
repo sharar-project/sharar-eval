@@ -55,7 +55,7 @@ def test_max_tokens_replaces_each_cap_and_a_run_dir_keeps_one(tmp_path, monkeypa
     assert (suite.task_max_tokens("gpqa"), suite.task_max_tokens("gpqa", 32768), suite.task_max_tokens("needles", 32768)) == (8192, 32768, None)
 
     def args(cap):
-        return argparse.Namespace(label="fast", url="u", model="sharar", plain=False, accept="server", concurrency=4,
+        return argparse.Namespace(label="fast", url="u", model="hibana", plain=False, accept="server", concurrency=4,
                                   engine="e", suite=None, tasks="gpqa", limit=0, max_tokens=cap)
     suite.record(tmp_path, args(32768), ["gpqa"])
     assert json.loads((tmp_path / "run.json").read_text())["tasks"]["gpqa"] == {"max_tokens": 32768}
@@ -114,7 +114,7 @@ def test_a_run_dir_keeps_one_request_mode(tmp_path, monkeypatch, request_mode):
     import argparse
     monkeypatch.setattr(suite, "server_info", lambda url: {"target": "t"})
     monkeypatch.setattr(suite.datasets, "check", lambda names: {})
-    args = argparse.Namespace(label="fast", url="u", model="sharar", plain=False, accept="server", concurrency=4,
+    args = argparse.Namespace(label="fast", url="u", model="hibana", plain=False, accept="server", concurrency=4,
                               engine="e", suite=None, tasks="gpqa", limit=0, max_tokens=0)
     suite.record(tmp_path, args, ["gpqa"])
     rec = json.loads((tmp_path / "run.json").read_text())

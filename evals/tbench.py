@@ -18,10 +18,10 @@ an agent driving the server, pass/fail per task from each task's tests.
     in the other evals. The acceptance rule is the server's own unless `--accept` pins one.
   - `tbench-claude-code` and `tbench-opencode`: the agents people use, with native tool calls. Claude Code
     talks Anthropic Messages (`<url>/v1/messages`) and OpenCode talks OpenAI chat with tools (`<url>/v1`),
-    set up as `sharar-ctl launch claude` and `sharar-ctl launch opencode` set them up. Harbor installs the
+    set up as `hibana launch claude` and `hibana launch opencode` set them up. Harbor installs the
     pinned versions (AGENT_VERSIONS) in each task container. Sampling and thinking are the agent's own,
     and the acceptance rule is the server's (these agents cannot send `--accept`). Claude Code needs a
-    model name containing "claude": against Sharar it is claude-sharar-qwen3.8, and with `--plain` it is `--model`.
+    model name containing "claude": against Hibana it is claude-hibana-qwen3.8, and with `--plain` it is `--model`.
   - Each native-agent task's traffic goes through a recording proxy (evals/agent_traffic.py) on Docker's
     bridge, into <run dir>/<task>/traffic/<item>/. Its tool-call check is in each item (`traffic`): leaks,
     bad JSON, unknown tools, missing parameters, stop reasons and HTTP errors, which should all be 0.
@@ -62,14 +62,16 @@ from pathlib import Path
 from evals import agent_traffic
 from evals.accuracy_eval import SERVER
 from evals.datasets import ROOT
+from evals.env import setting
 
 REPO = Path(__file__).resolve().parent.parent
 HARBOR_VERSION = "0.23.0"
 
 
 def _harbor() -> Path:
-    """$SHARAR_HARBOR, else harbor on PATH (uv tool install), else an older .venv-harbor here or in this checkout."""
-    if configured := os.environ.get("SHARAR_HARBOR"):
+    """$HIBANA_HARBOR (or $SHARAR_HARBOR), else harbor on PATH (uv tool install), else an older .venv-harbor here or in
+    this checkout."""
+    if configured := setting("HARBOR"):
         return Path(configured).expanduser()
     if found := shutil.which("harbor"):
         return Path(found)
@@ -88,8 +90,8 @@ ATTEMPTS, CONCURRENCY = 2, 2
 AGENTS = {"tbench": "terminus-2", "tbench-claude-code": "claude-code", "tbench-opencode": "opencode"}
 TASKS = {t: ([MANIFEST], None) for t in AGENTS}
 AGENT_VERSIONS = {"claude-code": "2.1.292", "opencode": "1.18.35"}  # the versions measured on 2026-10-07
-CLAUDE_MODEL = "claude-sharar-qwen3.8"  # Claude Code only accepts model names containing "claude"
-OUTPUT_TOKENS = 32768  # OpenCode's output limit, as sharar-ctl launch opencode sets it
+CLAUDE_MODEL = "claude-hibana-qwen3.8"  # Claude Code only accepts model names containing "claude"
+OUTPUT_TOKENS = 32768  # OpenCode's output limit, as hibana launch opencode sets it
 WORKDIR = True  # evals.suite passes the task's run directory to run()
 
 
@@ -107,7 +109,7 @@ def fetch() -> None:
 
 def harbor(args: list[str], log: Path) -> int:
     if not HARBOR.is_file():
-        raise SystemExit(f"harbor not found: uv tool install harbor=={HARBOR_VERSION} (or set SHARAR_HARBOR)")
+        raise SystemExit(f"harbor not found: uv tool install harbor=={HARBOR_VERSION} (or set HIBANA_HARBOR)")
     with log.open("a") as f:
         return subprocess.run([str(HARBOR), "run", "-p", str(DATASET), "--force-build", "-y", "-q", *args],
                               stdout=f, stderr=subprocess.STDOUT).returncode
@@ -185,17 +187,17 @@ def agent_args(url: str, accept) -> list[str]:
 
 
 def native_agent_args(agent: str, url: str, context: int) -> list[str]:
-    """Claude Code or OpenCode against `url` (a recording proxy), configured as sharar-ctl launch configures them."""
+    """Claude Code or OpenCode against `url` (a recording proxy), configured as hibana launch configures them."""
     version = ["--ak", f"version={AGENT_VERSIONS[agent]}"]
     if agent == "claude-code":
         model = SERVER["model"] if SERVER["plain"] else CLAUDE_MODEL
-        return ["-a", "claude-code", "-m", model, *version, "--ae", f"ANTHROPIC_BASE_URL={url}", "--ae", "ANTHROPIC_API_KEY=sharar",
+        return ["-a", "claude-code", "-m", model, *version, "--ae", f"ANTHROPIC_BASE_URL={url}", "--ae", "ANTHROPIC_API_KEY=hibana",
                 "--ae", f"CLAUDE_CODE_MAX_CONTEXT_TOKENS={context}", "--ae", "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1",
                 "--ae", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"]
     model = SERVER["model"]
-    provider = {"npm": "@ai-sdk/openai-compatible", "name": "Sharar", "options": {"baseURL": f"{url}/v1", "apiKey": "sharar"},
+    provider = {"npm": "@ai-sdk/openai-compatible", "name": "Hibana", "options": {"baseURL": f"{url}/v1", "apiKey": "hibana"},
                 "models": {model: {"name": model, "limit": {"context": context, "output": OUTPUT_TOKENS}}}}
-    return ["-a", "opencode", "-m", f"sharar/{model}", *version, "--ak", "opencode_config=" + json.dumps({"provider": {"sharar": provider}})]
+    return ["-a", "opencode", "-m", f"hibana/{model}", *version, "--ak", "opencode_config=" + json.dumps({"provider": {"hibana": provider}})]
 
 
 def run(task: str, url: str, items: list[dict], accept, max_tokens, concurrency: int, workdir: Path) -> list[dict]:

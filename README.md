@@ -2,7 +2,7 @@
 
 Engine-agnostic evaluations for local inference servers. Everything talks HTTP (OpenAI chat
 completions, or a server's native `/generate`) and imports nothing from the engine, so the same
-commands measure Sharar, SGLang, vLLM or anything else with that API.
+commands measure Hibana, SGLang, vLLM or anything else with that API.
 
 ## Install
 
@@ -17,13 +17,16 @@ As a dependency of another project:
 
 ## Configuration
 
+Hibana was called Sharar: each `HIBANA_*` variable below is also read under its former `SHARAR_*` name, unless the
+`HIBANA_*` one is set.
+
 | Variable | Used for | Default |
 |---|---|---|
-| `SHARAR_RESULTS` | Datasets (`$SHARAR_RESULTS/datasets`) and speed results | `$XDG_DATA_HOME/sharar`, else `~/.local/share/sharar` (the same as sharar's) |
-| `SHARAR_HF_CACHE` | The Hugging Face cache holding the pinned Qwen3.8-27B snapshot (speed benchmarks tokenize with it) | `$HF_HUB_CACHE`, `$HF_HOME/hub`, else `~/.cache/huggingface/hub` |
+| `HIBANA_RESULTS` | Datasets (`$HIBANA_RESULTS/datasets`) and speed results | `$XDG_DATA_HOME/hibana`, else `~/.local/share/hibana` (the same as Hibana's; the former `.../sharar` while only that exists) |
+| `HIBANA_HF_CACHE` | The Hugging Face cache holding the pinned Qwen3.8-27B snapshot (speed benchmarks tokenize with it) | `$HF_HUB_CACHE`, `$HF_HOME/hub`, else `~/.cache/huggingface/hub` |
 | `HF_TOKEN` | Fetching GPQA (gated), and SPEED-Bench through AIPerf (the account must have accepted cais/hle's terms); a stored `hf auth login` works too | none |
-| `SHARAR_AIPERF` | The `aiperf` binary for `sharar-eval speed` | `aiperf` on `PATH` |
-| `SHARAR_HARBOR` | The `harbor` binary for Terminal-Bench | `harbor` on `PATH` |
+| `HIBANA_AIPERF` | The `aiperf` binary for `sharar-eval speed` | `aiperf` on `PATH` |
+| `HIBANA_HARBOR` | The `harbor` binary for Terminal-Bench | `harbor` on `PATH` |
 
 ## Datasets
 
@@ -54,7 +57,7 @@ Every file comes from a pinned source (`evals/datasets.py`) and is checked again
     uv run sharar-eval compare runs/exact runs/fast
     uv run sharar-eval compare runs/exact runs/fast --detail       # per category and language
 
-For an engine other than Sharar, add `--plain --model <served model name>`.
+For an engine other than Hibana, add `--plain --model <served model name>`.
 
 | Suite | Tasks | Time per arm (Flash-Next, 4 streams) |
 |---|---|---|
@@ -95,7 +98,7 @@ For an engine other than Sharar, add `--plain --model <served model name>`.
       uv run sharar-eval run --url http://127.0.0.1:30004 --label exact-s0 --tasks gpqa,ifbench \
           --thinking --temperature 1.0 --seed 0 --max-tokens 65536 --out runs/exact-think-s0
       uv run sharar-eval show runs/exact-think-s0 runs/exact-think-s1 runs/exact-think-s2
-- **Repeatability:** at 4 streams a Sharar server is not item-for-item repeatable, even with exact
+- **Repeatability:** at 4 streams a Hibana server is not item-for-item repeatable, even with exact
   acceptance, because batch composition changes the numerics; at 1 stream it is. Two runs of the
   same configuration therefore differ on a few items, which is part of the noise the paired tests measure.
 
@@ -129,11 +132,11 @@ time. AIPerf does the sending; sharar-eval fixes what is sent and versions it as
 
     uv run sharar-eval bench list                                                    # engines, suites, cells
     uv run sharar-eval bench prepare --suite quick       # once per machine, NO engine serving: resolve SPEED-Bench sets
-    uv run sharar-eval bench run --engine sharar --engine-version "main@ee529eb fast" \
-        --url http://127.0.0.1:30004 --suite quick --out runs/bench/sharar-fast
+    uv run sharar-eval bench run --engine hibana --engine-version "main@ee529eb fast" \
+        --url http://127.0.0.1:30004 --suite quick --out runs/bench/hibana-fast
     uv run sharar-eval bench run --engine vllm --engine-version "vllm 0.11 nightly" --url http://127.0.0.1:8000 \
         --suite quick --out runs/bench/vllm
-    uv run sharar-eval bench report runs/bench/sharar-fast runs/bench/vllm            # tables, then ratios to the first
+    uv run sharar-eval bench report runs/bench/hibana-fast runs/bench/vllm            # tables, then ratios to the first
 
 | Suite | Cells |
 |---|---|
@@ -150,9 +153,9 @@ time. AIPerf does the sending; sharar-eval fixes what is sent and versions it as
   terms (it is in every config). AIPerf uses whichever login it finds: `HF_TOKEN`, else `$HF_HOME/token` (default
   `~/.cache/huggingface/token`). A machine whose `HF_HOME` points at a shared cache holding someone else's token fails
   every SPEED-Bench cell with "this account has not been granted access"; run the bench with `HF_TOKEN` or your own
-  `HF_HOME`. Resolved sets are kept under `$SHARAR_RESULTS/datasets/aiperf`. Resolve them with `bench prepare` before
+  `HF_HOME`. Resolved sets are kept under `$HIBANA_RESULTS/datasets/aiperf`. Resolve them with `bench prepare` before
   starting an engine: resolving loads the sources (about 40 GB for the qualitative split), and on a GB10's shared
-  memory that pushed a serving Sharar under its 16 GiB floor, so its guard stopped the server. `bench run` refuses
+  memory that pushed a serving Hibana under its 16 GiB floor, so its guard stopped the server. `bench run` refuses
   SPEED-Bench cells whose set is not resolved (`--resolve` overrides), and stops the suite when the server stops
   answering. `speedbench-qual`: one SPEED-Bench qualitative category per cell (coding, humanities, math, multilingual, qa, rag,
   reasoning, roleplay, stem, summarization, writing), all 80 conversations once, turns in order with the server's own
@@ -163,7 +166,7 @@ time. AIPerf does the sending; sharar-eval fixes what is sent and versions it as
   long-context request (cap 256), and per prefill length two fresh synthetic documents of exactly that many tokens
   with one output token (the second is reported). Documents are cut with the pinned tokenizer; the request tag, the
   question and the chat template add about 40 tokens. The documents draw on a 100-word vocabulary, which repeats far
-  more than real text does: engines that reuse n-gram rows (Sharar, TensorFold) may prefill it faster than prose. A cell at N streams sends max(8, 2N) decode requests (long context: 2N), N in flight; every request opens
+  more than real text does: engines that reuse n-gram rows (Hibana, TensorFold) may prefill it faster than prose. A cell at N streams sends max(8, 2N) decode requests (long context: 2N), N in flight; every request opens
   with its own `[request N]` tag, so nothing is cached across requests or runs.
 - **Engines.** Only what is not the chat API differs: the endpoint that flushes the prefix cache before every cell
   (cells never warm each other) and the one where the server describes itself. Any other OpenAI-compatible server
@@ -190,13 +193,13 @@ optional flush and self-description endpoints from `bench_v1.json` (`openai` for
 engine is another `--url`. Engine settings (memory, batch size, profiles) belong to the engine's own launch command.
 
     uv run sharar-eval efficiency prepare --context 8k,16k,32k     # once per machine, NO engine serving
-    uv run sharar-eval efficiency warm-decode --engine sharar --engine-version "main@b211a0a --throughput" \
+    uv run sharar-eval efficiency warm-decode --engine hibana --engine-version "main@b211a0a --throughput" \
         --url http://127.0.0.1:30004 --context 8k,16k --categories low_entropy --concurrency 1,2,4,8,16,32,64 \
-        --out runs/efficiency/sharar-warm
+        --out runs/efficiency/hibana-warm
     uv run sharar-eval efficiency aggregated-decode --engine vllm --engine-version "vllm 0.11" \
         --url http://127.0.0.1:8000 --tests code --concurrency 1,4,16,64 --slots 8 --out runs/efficiency/vllm-agg
-    uv run sharar-eval efficiency agent-replay --engine sharar --engine-version "main@b211a0a --throughput" \
-        --url http://127.0.0.1:30004 --agents 1,8,16,32 --out runs/efficiency/sharar-agents
+    uv run sharar-eval efficiency agent-replay --engine hibana --engine-version "main@b211a0a --throughput" \
+        --url http://127.0.0.1:30004 --agents 1,8,16,32 --out runs/efficiency/hibana-agents
     uv run sharar-eval efficiency suite --suite cross-engine --engine vllm --engine-version "vllm 0.11" \
         --url http://127.0.0.1:8000 --out runs/cross-engine/vllm
     uv run sharar-eval efficiency report runs/efficiency/sharar-warm runs/efficiency/vllm-agg runs/cross-engine/vllm
@@ -218,7 +221,7 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
   `--exclude-sources` leaves sources out. An engine without a flush endpoint can pass `--flush-cmd` (a restart) to empty
   its cache before each burst; without one it is not flushed (TensorFold: earlier bursts' prompts stay cached until
   evicted). `--prime-passes K` sends each burst's prompts K times before timing, for an engine that keeps a prompt's
-  cache only once it has seen it more than once (vLLM's Nemotron recipes: 2, Super with 3 drafts: 3). Where the server reports speculation counters (Sharar's `/get_server_info`
+  cache only once it has seen it more than once (vLLM's Nemotron recipes: 2, Super with 3 drafts: 3). Where the server reports speculation counters (Hibana's `/get_server_info`
   `spec_stats`), each burst records the share of drafted tokens accepted and the tokens emitted per request per
   verify round.
   Only the window in which all N decode is timed: from the last request's first token to the first request's last
@@ -278,7 +281,7 @@ engine is another `--url`. Engine settings (memory, batch size, profiles) belong
 ## Engines
 
 sharar-eval measures whatever OpenAI-compatible server answers at `--url`. [`engines/`](engines/README.md)
-holds what starts one for the benchmarks: per engine (vLLM by eugr's recipes, Sharar, TensorFold) every pinned version, one
+holds what starts one for the benchmarks: per engine (vLLM by eugr's recipes, Hibana, TensorFold) every pinned version, one
 setting per model, and `serve.sh`; `engines/common/run.sh ENGINE MODEL` reserves a DGX Spark, starts the engine, runs
 `efficiency suite --suite cross-engine` and stops it.
 
@@ -293,7 +296,7 @@ setting per model, and `serve.sh`; `engines/common/run.sh ENGINE MODEL` reserves
 | `speed` | AIPerf end-to-end and decode tokens/s on the frozen `code` / `design` / `reasoning` 10K/1K prompts: greedy with `ignore_eos`, cold prefix, concurrency 1, exact acceptance by default. `--baseline` compares runs with identical input IDs |
 | `sharegpt` | ShareGPT first turns in short / medium / long buckets at several concurrencies |
 | `competitive` | Engine-neutral native `/generate` cells with frozen token inputs (fixed work plus natural answers) |
-| `engine-matrix` | Sharar / SGLang / Atlas token-input matrix with attested output and cache counts |
+| `engine-matrix` | Hibana / SGLang / Atlas token-input matrix with attested output and cache counts |
 | `local`, `agent` | Frozen local-use requests (cache variants, mixed arrival, cancellation) and agent-shaped episodes |
 | `bench` | The bench suite above: `run`, `report`, `list` |
 | `efficiency` | Efficiency by mode, any engine: `warm-decode` (prompts already cached, decode-only window), `aggregated-decode` (short prompts, N in flight), `agent-replay` (recorded agent tasks at N agents at once), `suite` (a named set of them), `prepare`, `report` |

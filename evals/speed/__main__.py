@@ -1,4 +1,4 @@
-"""AIPerf speed benchmark for an already running Sharar or SGLang server (formerly `sharar benchmark`).
+"""AIPerf speed benchmark for an already running Hibana or SGLang server (formerly Sharar's `sharar benchmark`).
 
     sharar-eval speed --url http://127.0.0.1:30004 --workload all
     sharar-eval speed --url http://127.0.0.1:30000 --accept omit --inputs RUN/frozen-inputs.json --baseline RUN
@@ -19,20 +19,22 @@ import sys
 from urllib.error import URLError
 from urllib.parse import urlsplit
 
+from evals.env import PREFIXES, setting
 from evals.speed.aiperf import MODEL, REVISION, digest, http_json, trial
 from evals.speed.workloads import LEGACY_WORKLOADS, VERSION, WORKLOADS, materialize
 
 AIPERF_VERSION = '0.12.0'
+CONFIG_KEYS = ('RESULTS', 'HF_CACHE', 'AIPERF')  # the only settings read from the config file
 
 
 def add_arguments(parser):
-    parser.add_argument('--url', default='http://127.0.0.1:30001', help='already running server (default: Sharar on port 30001)')
+    parser.add_argument('--url', default='http://127.0.0.1:30001', help='already running server (default: Hibana on port 30001)')
     parser.add_argument('--workload', choices=(*WORKLOADS, *LEGACY_WORKLOADS, 'all'), default='code', help='code_v1 is the pre-2026-09-15 prompt (stops at output 98), kept for historical comparisons')
     parser.add_argument('--input-tokens', type=int, default=10000)
     parser.add_argument('--output-tokens', type=int, default=1000)
     parser.add_argument('--repeats', type=int, default=3, help='timed requests per workload')
     parser.add_argument('--warmups', type=int, default=1, help='excluded full-generation warmups per workload')
-    parser.add_argument('--output', type=Path, help='new result directory (default: timestamped under SHARAR_RESULTS)')
+    parser.add_argument('--output', type=Path, help='new result directory (default: timestamped under HIBANA_RESULTS)')
     parser.add_argument('--inputs', type=Path, help='reuse frozen-inputs.json from another run')
     parser.add_argument('--baseline', type=Path, help='previous result directory to compare TPS and output hashes')
     parser.add_argument('--aiperf', help='AIPerf executable (normally discovered automatically)')
@@ -40,17 +42,23 @@ def add_arguments(parser):
 
 
 def load_config():
-    """Read only benchmark paths from the repository config; never execute shell."""
-    path = Path(os.environ.get('SHARAR_CONFIG_FILE', Path.cwd() / 'config/gb10.env'))
+    """Read only benchmark paths from the repository config; never execute shell. The file may use Hibana's names or
+    the former SHARAR_* ones; a setting already in the environment wins."""
+    path = Path(setting('CONFIG_FILE') or Path.cwd() / 'config/gb10.env')
     if path.is_file():
+        found = {}
         for line in path.read_text().splitlines():
             key, sep, value = line.partition('=')
             key = key.strip()
-            if sep and key in ('SHARAR_RESULTS', 'SHARAR_HF_CACHE', 'SHARAR_AIPERF'):
+            prefix = next((p for p in PREFIXES if key.startswith(p)), None)
+            if sep and prefix and key[len(prefix):] in CONFIG_KEYS:
                 parts = shlex.split(value, comments=True)
                 if len(parts) == 1:
-                    os.environ.setdefault(key, parts[0])
-    if cache := os.environ.get('SHARAR_HF_CACHE'):
+                    found.setdefault(key[len(prefix):], {})[prefix] = parts[0]
+        for name, values in found.items():
+            if setting(name) is None:
+                os.environ['HIBANA_' + name] = next(values[p] for p in PREFIXES if p in values)
+    if cache := setting('HF_CACHE'):
         # The pinned tokenizer lives in the repository's model cache; a shell that already
         # points HF_HUB_CACHE at another cache must not redirect AIPerf away from it.
         root = Path(cache).expanduser()
@@ -63,7 +71,7 @@ def results_root():
 
 
 def resolve_aiperf(explicit=None):
-    configured = explicit or os.environ.get('SHARAR_AIPERF')
+    configured = explicit or setting('AIPERF')
     candidates = [configured] if configured else [
         'aiperf', str(Path(sys.executable).parent / 'aiperf'),
         str(Path.cwd() / '.venv-aiperf/bin/aiperf'),

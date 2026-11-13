@@ -348,7 +348,7 @@ SPEC_KEYS = ("rounds", "proposed", "accepted", "emitted")
 
 
 def spec_counters(url: str) -> dict | None:
-    """The engine's cumulative speculation counters, where it reports them (Sharar: /get_server_info spec_stats), else
+    """The engine's cumulative speculation counters, where it reports them (Hibana: /get_server_info spec_stats), else
     None: rounds (batched verify steps), proposed and accepted draft tokens, emitted tokens, verify depth."""
     try:
         st = bench.http(url + "/get_server_info", timeout=10).get("spec_stats")

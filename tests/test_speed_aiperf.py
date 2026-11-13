@@ -1,10 +1,12 @@
 import copy
 import json
+import os
 from pathlib import Path
 import subprocess
 
 import pytest
 
+from evals.env import PREFIXES
 from evals.speed import __main__ as benchmark
 from evals.speed.aiperf import digest, timings
 from evals.speed.workloads import materialize
@@ -124,14 +126,35 @@ def test_cli_invalid_options_fail_before_launch(options, monkeypatch):
     assert main([*options]) == 1
 
 
+def clear_settings(monkeypatch):
+    """No HIBANA_* / SHARAR_* path settings, restored afterwards (load_config writes os.environ itself)."""
+    for prefix in PREFIXES:
+        for name in ('CONFIG_FILE', *benchmark.CONFIG_KEYS):
+            monkeypatch.setenv(prefix + name, '')
+            monkeypatch.delenv(prefix + name)
+
+
 def test_config_reads_paths_without_executing_shell(tmp_path, monkeypatch):
     config = tmp_path / 'gb10.env'
     marker = tmp_path / 'must-not-exist'
     config.write_text(f'SHARAR_RESULTS="{tmp_path}/with spaces"\nSHARAR_AIPERF="$(touch {marker})"\n')
+    clear_settings(monkeypatch)
     monkeypatch.setenv('SHARAR_CONFIG_FILE', str(config))
-    monkeypatch.delenv('SHARAR_RESULTS', raising=False)
-    monkeypatch.delenv('SHARAR_AIPERF', raising=False)
     benchmark.load_config()
     assert benchmark.results_root() == tmp_path / 'with spaces'
     assert not marker.exists()
-    monkeypatch.delenv('SHARAR_AIPERF')
+
+
+def test_config_prefers_hibana_names(tmp_path, monkeypatch):
+    """HIBANA_CONFIG_FILE over SHARAR_CONFIG_FILE; in the file, HIBANA_X over SHARAR_X; the environment over the file."""
+    old, new = tmp_path / 'old.env', tmp_path / 'new.env'
+    old.write_text(f'SHARAR_RESULTS={tmp_path}/old\n')
+    new.write_text(f'SHARAR_RESULTS={tmp_path}/former\nHIBANA_RESULTS={tmp_path}/hibana\nHIBANA_HF_CACHE={tmp_path}/hf\n')
+    clear_settings(monkeypatch)
+    monkeypatch.setenv('SHARAR_CONFIG_FILE', str(old))
+    monkeypatch.setenv('HIBANA_CONFIG_FILE', str(new))
+    monkeypatch.setenv('SHARAR_HF_CACHE', str(tmp_path / 'env-hf'))
+    monkeypatch.setenv('HF_HUB_CACHE', 'elsewhere')
+    benchmark.load_config()
+    assert benchmark.results_root() == tmp_path / 'hibana'
+    assert os.environ['HF_HUB_CACHE'] == str(tmp_path / 'env-hf')  # the environment's former name beats the file

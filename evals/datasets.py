@@ -1,6 +1,6 @@
-"""Pinned datasets: every file an eval reads lives under $SHARAR_RESULTS/datasets (default: sharar's,
-$XDG_DATA_HOME/sharar or ~/.local/share/sharar), is fetched from a pinned source and checked against
-evals/datasets.sha256.
+"""Pinned datasets: every file an eval reads lives under $HIBANA_RESULTS/datasets (or the former $SHARAR_RESULTS; default:
+Hibana's, $XDG_DATA_HOME/hibana or ~/.local/share/hibana, or the former .../sharar while only that exists), is fetched
+from a pinned source and checked against evals/datasets.sha256.
 
     sharar-eval datasets fetch     # download what is missing, then check everything
     sharar-eval datasets check     # check only
@@ -17,13 +17,15 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from evals.env import former, setting
 
 
 def results_root() -> Path:
-    """$SHARAR_RESULTS, else sharar's default results directory."""
-    if root := os.environ.get("SHARAR_RESULTS"):
+    """$HIBANA_RESULTS (or $SHARAR_RESULTS), else Hibana's default results directory."""
+    if root := setting("RESULTS"):
         return Path(root).expanduser()
-    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "sharar"
+    data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return former(data / "hibana", data / "sharar")
 
 
 ROOT = results_root() / "datasets"

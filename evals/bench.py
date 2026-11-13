@@ -2,7 +2,7 @@
 over time.
 
     sharar-eval bench prepare --suite quick                     # with no engine serving: resolve SPEED-Bench sets
-    sharar-eval bench run --engine sharar --url http://127.0.0.1:30004 --suite quick --out runs/bench/sharar-fast
+    sharar-eval bench run --engine hibana --url http://127.0.0.1:30004 --suite quick --out runs/bench/hibana-fast
     sharar-eval bench report runs/bench/sharar-fast [runs/bench/vllm ...]
     sharar-eval bench list
 
@@ -140,7 +140,7 @@ def aiperf_command(explicit: str | None) -> list[str]:
 def prepare(args) -> int:
     """Resolve a suite's SPEED-Bench sets before any engine serves. Resolving downloads and loads the sources (about 40
     GB for the qualitative split), which on a GB10's shared memory can push a serving engine under its memory floor
-    (Sharar's guard stops the server). One AIPerf request per missing set, against a local stand-in server."""
+    (Hibana's guard stops the server). One AIPerf request per missing set, against a local stand-in server."""
     from evals import mock_server
     from evals.speed import model as snapshot_model
     from http.server import ThreadingHTTPServer

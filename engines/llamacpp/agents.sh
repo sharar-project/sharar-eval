@@ -18,7 +18,7 @@ SETTING=${1:?usage: agents.sh SETTING [AGENTS ...]}; shift
 . "$HERE/../common/defaults.env"; . "$HERE/../common/lib.sh"; . "$HERE/versions.env"
 [ -f "$HERE/settings/$SETTING.env" ] || die "no setting '$SETTING': $(ls "$HERE/settings" | sed 's/\.env$//' | tr '\n' ' ')"
 . "$HERE/settings/$SETTING.env"
-export SHARAR_RESULTS PYTHONDONTWRITEBYTECODE=1
+export SHARAR_RESULTS HIBANA_RESULTS PYTHONDONTWRITEBYTECODE=1
 case " $AVOID_HOSTS " in *" $(hostname) "*)
   [ "${RUN_ON_ANY_HOST:-0}" = 1 ] || die "$(hostname) is in AVOID_HOSTS ($AVOID_HOSTS): benchmark on another Spark, or set RUN_ON_ANY_HOST=1" ;; esac
 eval "$(python3 -I - "$ROOT/evals/workloads/efficiency_v1.json" <<'PY'

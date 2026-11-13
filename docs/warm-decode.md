@@ -24,7 +24,7 @@ Spark (`~/.sp-claim`, the `sp` driver's file) for the whole run.
 
 A cell is one (context, prompt kind, N). Each burst of N prompts goes through:
 
-1. **Flush** the engine's prefix cache: its flush endpoint from `evals/workloads/bench_v1.json` (Sharar
+1. **Flush** the engine's prefix cache: its flush endpoint from `evals/workloads/bench_v1.json` (Hibana
    `/flush_cache`, vLLM `/reset_prefix_cache`), or `--flush-cmd` (a shell command, e.g. a restart; sharar-eval then
    waits up to 15 minutes for `/v1/models`). An engine with neither (TensorFold) is not flushed: prompts primed for
    earlier bursts stay cached until the engine evicts them.
@@ -68,7 +68,7 @@ to the server's count, so an engine that streams in bursts is counted when the t
 text holds under 90% of the server's count (special tokens after the model's own end, not streamed) or whose stream is
 held back to its end is spread evenly over its whole decode instead; the row then ends "(k held back)". A cell of
 several bursts reports the mean of their rates and windows, the minimum hit and slowest stream, and the maximum TTFT
-and pause over all bursts. Where the server reports speculation counters (Sharar's `/get_server_info` `spec_stats`),
+and pause over all bursts. Where the server reports speculation counters (Hibana's `/get_server_info` `spec_stats`),
 `cell.json` also keeps the share of drafted tokens accepted and the tokens emitted per request per verify round.
 
 ## When a row stops
@@ -105,8 +105,8 @@ Variants, the same cells otherwise:
 | Suite | Change |
 |---|---|
 | `cross-engine-thinking-off` | thinking off (`reasoning off`), sampling unchanged |
-| `cross-engine-n4` | N = 1, 2, 4 only, for a setting that decodes at most 4 at once (Sharar's `-fast` settings) |
-| `cross-engine-n64` | N = 64 only, one burst of 64 balanced prompts whose first 32 are cross-engine's; needs a 64-sequence setting (vLLM `-s64`, Sharar `-b64`) |
+| `cross-engine-n4` | N = 1, 2, 4 only, for a setting that decodes at most 4 at once (Hibana's `-fast` settings) |
+| `cross-engine-n64` | N = 64 only, one burst of 64 balanced prompts whose first 32 are cross-engine's; needs a 64-sequence setting (vLLM `-s64`, Hibana `-b64`) |
 | `smoke` | a few-minute check: 8k, N = 1 and 4, 256 tokens, the first prompts in file order, one burst, floor 60% |
 
 `suite --context 16k` (or `8k,32k`) runs only those of a suite's lengths, the same cells; `suite.json` records it.
@@ -140,8 +140,8 @@ or the environment:
 | `OUT` | environment | resume an earlier run directory: finished cells and stopped rows are skipped; the options (suite, `CONTEXT`, host in the version label) must match |
 
 ```sh
-engines/common/run.sh sharar qwen3.8-flash-next                                  # Sharar --throughput
-engines/common/run.sh sharar qwen3.8-flash-next-fast cross-engine-n4             # Sharar --fast
+engines/common/run.sh sharar qwen3.8-flash-next                                  # Hibana --throughput
+engines/common/run.sh sharar qwen3.8-flash-next-fast cross-engine-n4             # Hibana --fast
 engines/common/run.sh vllm nemotron-3.5-bolt                                     # primes twice, floor 0.5
 for c in 8k 16k 32k; do CONTEXT=$c engines/common/run.sh tensorfold qwen3.8-flash-next-maxfit; done
 ```
@@ -167,11 +167,11 @@ merged as the run merged them (speculation counters, which come from the server,
 ## Before comparing engines
 
 - **Each engine at its fastest setting per N.** Memory share changes how many requests fit, not their speed, so a
-  figure takes each engine's best setting at each N (Sharar `--fast` at N <= 4 or `--throughput`; vLLM's recipe at
+  figure takes each engine's best setting at each N (Hibana `--fast` at N <= 4 or `--throughput`; vLLM's recipe at
   more memory or with fewer drafts; TensorFold's budget setting or its max-fit one).
-- **Checkpoints can differ.** On Qwen3.8-Flash-Next, Sharar serves RadixArk's NVFP4 build while vLLM and TensorFold
+- **Checkpoints can differ.** On Qwen3.8-Flash-Next, Hibana serves RadixArk's NVFP4 build while vLLM and TensorFold
   serve NVIDIA's FP4-Local; speed differences there include the quantization.
-- **The page cache.** Sharar and TensorFold read n-gram tables from disk on the first pass over new prompts, so the
+- **The page cache.** Hibana and TensorFold read n-gram tables from disk on the first pass over new prompts, so the
   first bursts can be slower while rows come off the SSD (`disk.log`). A run right after a reboot, or next to a
   download, measures the disk.
 - **The box.** One engine per Spark, never next to a download (it also starves the engine's memory), and not on

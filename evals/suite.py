@@ -287,8 +287,8 @@ def cmd_run(argv: list[str]) -> int:
     ap.add_argument("--max-tokens", type=int, default=0,
                     help="token cap for every task in this run instead of each task's default (recorded; the needles keep theirs)")
     ap.add_argument("--skip", action="append", default=[], choices=sorted(TASKS), help="leave this task out (repeatable)")
-    ap.add_argument("--model", default="sharar")
-    ap.add_argument("--plain", action="store_true", help="another OpenAI-compatible server: no Sharar-only request fields, no /get_server_info")
+    ap.add_argument("--model", default="hibana")
+    ap.add_argument("--plain", action="store_true", help="another OpenAI-compatible server: no Hibana-only request fields, no /get_server_info")
     add_request_args(ap)
     args = ap.parse_args(argv)
     args.url = args.url.rstrip("/")
@@ -297,7 +297,7 @@ def cmd_run(argv: list[str]) -> int:
     if args.thinking and not args.max_tokens:
         ap.error("--thinking needs --max-tokens: the task defaults (GPQA 8,192, the rest 4,096) cut thinking off")
     accept = None if args.accept == "server" else (int(args.accept.split(":")[0]), float(args.accept.split(":")[1]))
-    skip = set(args.skip) | ({"needles"} if args.plain else set())  # the needles send Sharar request fields
+    skip = set(args.skip) | ({"needles"} if args.plain else set())  # the needles send Hibana request fields
     if args.tasks:
         names = args.tasks.split(",")
         if set(names) - set(TASKS):

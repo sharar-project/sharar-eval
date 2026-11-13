@@ -1,5 +1,5 @@
 """Head-to-head serving benchmark (#26): the same chat requests against any
-OpenAI-compatible server (Sharar, SGLang, vLLM, Atlas, llama.cpp).
+OpenAI-compatible server (Hibana, SGLang, vLLM, Atlas, llama.cpp).
 
 Workloads (evals/workloads/h2h_v1.json):
   decode  every prompt per sampling mode and thinking setting, one at a time;

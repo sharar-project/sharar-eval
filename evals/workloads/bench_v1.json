@@ -3,7 +3,8 @@
   "aiperf": "0.13.0.dev20261020",
   "engines": {
     "openai": {"about": "any OpenAI-compatible chat server: only /v1/chat/completions and /v1/models are used"},
-    "sharar": {"flush": "/flush_cache", "info": "/get_server_info"},
+    "hibana": {"flush": "/flush_cache", "info": "/get_server_info"},
+    "sharar": {"flush": "/flush_cache", "info": "/get_server_info", "about": "Hibana's former name, for older runs and commits"},
     "sglang": {"flush": "/flush_cache", "info": "/get_server_info"},
     "vllm": {"flush": "/reset_prefix_cache", "info": "/version"},
     "llama.cpp": {"info": "/props", "about": "no flush endpoint: cells isolate their caches with nonces and seeds"},
