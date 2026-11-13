@@ -141,7 +141,7 @@ def test_run_flushes_before_every_cell_and_resumes(tmp_path, monkeypatch, snapsh
     from evals import checks
     monkeypatch.setattr(checks, "run", lambda url, model: {"model": model, "passed": False, "checks": [
         {"name": "thinking_off", "status": "pass", "detail": "ok"}, {"name": "ignore_eos", "status": "fail", "detail": "60"}]})
-    monkeypatch.setattr(sys, "argv", ["bench", "run", "--engine", "sharar", "--engine-version", "test",
+    monkeypatch.setattr(sys, "argv", ["bench", "run", "--engine", "hibana", "--engine-version", "test",
                                       "--url", f"http://127.0.0.1:{server.server_address[1]}", "--suite", "tiny",
                                       "--aiperf", str(fake), "--out", str(tmp_path / "run")])
     run_argv = list(sys.argv)
@@ -168,7 +168,7 @@ def test_run_flushes_before_every_cell_and_resumes(tmp_path, monkeypatch, snapsh
         assert json.loads((cell / "argv.json").read_text())[2].endswith("trace.yaml")
         assert len((tmp_path / "run/prefill/4000/input.jsonl").read_text().splitlines()) == 2
         run = json.loads((tmp_path / "run/run.json").read_text())
-        assert run["engine"] == "sharar" and run["server"]["engine"] == "mock"
+        assert run["engine"] == "hibana" and run["server"]["engine"] == "mock"
         assert run["checks"] == {"thinking_off": "pass", "ignore_eos": "fail"}
         assert json.loads((tmp_path / "run/checks.json").read_text())["passed"] is False
         assert bench.main() == 0 and len(flushes) == 5  # finished cells are skipped

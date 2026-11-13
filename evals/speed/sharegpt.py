@@ -16,7 +16,7 @@ tokens/s over the makespan, TTFT p50/p95, time per output token (TPOT) mean,
 per-request completion p50, generated tokens, and any failures.
 
 Runs inside the runtime image (needs the model tokenizer) with host network:
-  sharar-eval sharegpt --inputs DIR/inputs.json --url http://127.0.0.1:30001 --engine sharar --output DIR
+  sharar-eval sharegpt --inputs DIR/inputs.json --url http://127.0.0.1:30001 --engine hibana --output DIR
   sharar-eval sharegpt --freeze DIR/inputs.json   # tokenize + sample once, then reuse
 """
 
@@ -77,7 +77,7 @@ def stream_chat(url: str, model: str, prompt: str, max_tokens: int, engine: str,
     body = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens,
             "temperature": 0, "stream": True, "stream_options": {"include_usage": True}}
     body["chat_template_kwargs"] = {"enable_thinking": False}
-    if engine == "sharar":
+    if engine in ("hibana", "sharar"):  # sharar: Hibana's former name
         body["trace"] = False  # benchmark traffic stays out of the trace sink
     req = urllib.request.Request(url.rstrip("/") + "/v1/chat/completions", data=json.dumps(body).encode(),
                                  headers={"content-type": "application/json"})
@@ -170,7 +170,7 @@ def main():
     ap.add_argument("--per-bucket", type=int, default=32)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--url")
-    ap.add_argument("--engine", choices=("sharar", "sglang", "atlas"), default="sharar")
+    ap.add_argument("--engine", choices=("hibana", "sharar", "sglang", "atlas"), default="hibana")
     ap.add_argument("--model", default=None)
     ap.add_argument("--concurrency", type=int, nargs="+", default=[1, 4, 8])
     ap.add_argument("--buckets", nargs="+", default=list(BUCKETS))

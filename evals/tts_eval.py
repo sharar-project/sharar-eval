@@ -92,7 +92,7 @@ def normalize(s: str | None) -> str | None:
 
 
 def ask(url: str, problem: str, n: int, temperature: float, max_tokens: int, seed: int) -> tuple[list[str], dict, float]:
-    body = {"model": "sharar", "messages": [{"role": "user", "content": PROMPT.format(problem=problem)}],
+    body = {"model": "hibana", "messages": [{"role": "user", "content": PROMPT.format(problem=problem)}],
             "max_tokens": max_tokens, "temperature": temperature, "n": n, "seed": seed, "trace": False,
             "chat_template_kwargs": {"enable_thinking": False}}
     if temperature > 0:

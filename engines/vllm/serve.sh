@@ -38,7 +38,7 @@ if [ "$CMD" = down ]; then
   rm -f "$FLAG"                                                   # ends the guard
   docker stop -t 60 "$CONTAINER" > /dev/null 2>&1; docker rm -f "$CONTAINER" > /dev/null 2>&1
   # eugr's launcher mounts these caches of $HOME into the container, which runs as root: hand them back, or an engine run
-  # as this user on the same Spark cannot take its kernel-cache locks there (Sharar's b12x: PermissionError)
+  # as this user on the same Spark cannot take its kernel-cache locks there (Hibana's b12x: PermissionError)
   CACHES=(); for c in .cache/vllm .cache/flashinfer .cache/b12x .triton .tilelang; do [ -d "$HOME/$c" ] && CACHES+=(-v "$HOME/$c:/c/$c"); done
   for img in "$IMAGE_REGULAR" "$IMAGE_B12X"; do
     docker image inspect "$img" > /dev/null 2>&1 || continue

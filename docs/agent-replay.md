@@ -127,7 +127,7 @@ The CSV also has turn time p50 / p95 (request sent to stream closed), output tok
 **AA traces as published, 1 / 8 / 16 / 32 agents, thinking-off setting, no tool time**: one `run.sh` per engine and
 model, each on its own Spark, with the setting the campaign used:
 
-| Model | Sharar (`main 7387a45`, `--throughput`) | vLLM (eugr recipe) | TensorFold |
+| Model | Hibana (then Sharar; `main 7387a45`, `--throughput`) | vLLM (eugr recipe) | TensorFold |
 |---|---|---|---|
 | Qwen3.8-27B | `qwen3.8-27b` | `qwen3.8-27b-d4` | `CONTEXT=agents`, `qwen3.8-27b-maxfit` |
 | Qwen3.8-Flash-Next | `qwen3.8-flash-next` | `qwen3.8-flash-next-d2` | `TF_PARALLEL=16 TF_CONTEXT=65536 TF_RESERVE_GIB=9 TF_ENV=TF_FLASHNEXT_HEAD_KV=fp8`, `qwen3.8-flash-next-p32` |
@@ -198,7 +198,7 @@ level was not finished in the published run).
 
 - **The server reports cached tokens.** vLLM needs `--enable-prompt-tokens-details` (`engines/vllm/serve.sh` passes
   it); without it the cached column is `-`.
-- **Sharar 7387a45 holds a Qwen tool-call reply back to its end** (27B, Flash-Next; seen in the thinking-off setting), so its
+- **Hibana 7387a45 holds a Qwen tool-call reply back to its end** (27B, Flash-Next; seen in the thinking-off setting), so its
   TTFT over all turns includes those whole replies. Compare TTFT on streamed text turns (more than 3 chunks, over
   50 ms from first to last chunk) as well. Those replies carry tool calls, so `decode` leaves them out.
 - **How an engine resumes a conversation decides its cached share**, and the SWE-bench message that each next turn

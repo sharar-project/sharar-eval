@@ -386,8 +386,9 @@ def test_flush_cmd_runs_the_command_instead_of_the_flush_endpoint(tmp_path, monk
     marker = tmp_path / "restarted"
     efficiency.flush(argparse.Namespace(engine="openai", flush_cmd=f"echo once >> {marker}"), "http://x")
     assert marker.read_text() == "once\n" and calls == []
-    efficiency.flush(argparse.Namespace(engine="sharar", flush_cmd=None), "http://x")
-    assert calls == ["endpoint"]
+    efficiency.flush(argparse.Namespace(engine="hibana", flush_cmd=None), "http://x")
+    efficiency.flush(argparse.Namespace(engine="sharar", flush_cmd=None), "http://x")  # Hibana's former name
+    assert calls == ["endpoint", "endpoint"]
 
 
 def test_report_of_a_suite_run_reports_its_parts(tmp_path, capsys):

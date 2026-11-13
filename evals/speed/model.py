@@ -1,9 +1,10 @@
-"""The model-format pieces an HTTP client needs, copied from sharar at 2890ad1 (sharar/tokenizer.py,
+"""The model-format pieces an HTTP client needs, copied from Hibana (then Sharar) at 2890ad1 (sharar/tokenizer.py,
 sharar/api/chat_template.py and sharar/api/parsers/{reasoning,tools}.py), and the pinned snapshot.
 
 The benchmarks tokenize and render chat templates on the client so every engine gets identical
 token IDs; they read the pinned Qwen3.8-27B snapshot (tokenizer.json, chat_template.jinja) from the
-Hugging Face cache: --snapshot, else $SHARAR_HF_CACHE, $HF_HUB_CACHE, $HF_HOME/hub or ~/.cache/huggingface/hub.
+Hugging Face cache: --snapshot, else $HIBANA_HF_CACHE (or $SHARAR_HF_CACHE), $HF_HUB_CACHE, $HF_HOME/hub or
+~/.cache/huggingface/hub.
 """
 from __future__ import annotations
 
@@ -16,6 +17,8 @@ from pathlib import Path
 import jinja2
 from tokenizers import Tokenizer
 
+from evals.env import setting
+
 MODEL_ID = "RadixArk/Qwen3.8-27B-NVFP4"
 MODEL_REVISION = "319f741cce68d7914884900c138a1fbb70a42f30"
 MAX_CONTEXT = 262144
@@ -23,7 +26,7 @@ MAX_CONTEXT = 262144
 
 def snapshot_dir(cache: str | os.PathLike | None = None) -> Path:
     """The pinned snapshot directory in a Hugging Face cache."""
-    roots = [cache] if cache else [os.environ.get("SHARAR_HF_CACHE"), os.environ.get("HF_HUB_CACHE"),
+    roots = [cache] if cache else [setting("HF_CACHE"), os.environ.get("HF_HUB_CACHE"),
                                    os.environ.get("HF_HOME") and Path(os.environ["HF_HOME"]) / "hub",
                                    Path.home() / ".cache" / "huggingface" / "hub"]
     name = "models--" + MODEL_ID.replace("/", "--")
@@ -32,7 +35,7 @@ def snapshot_dir(cache: str | os.PathLike | None = None) -> Path:
             snap = base / name / "snapshots" / MODEL_REVISION
             if (snap / "tokenizer.json").is_file() and (snap / "chat_template.jinja").is_file():
                 return snap
-    raise FileNotFoundError(f"pinned snapshot {MODEL_ID}@{MODEL_REVISION[:7]} not found; set --snapshot or SHARAR_HF_CACHE")
+    raise FileNotFoundError(f"pinned snapshot {MODEL_ID}@{MODEL_REVISION[:7]} not found; set --snapshot or HIBANA_HF_CACHE")
 
 
 # ---------------------------------------------------------------- tokenizer (sharar/tokenizer.py)

@@ -23,7 +23,7 @@ COMMANDS = {
     "speed": ("evals.speed", [], "AIPerf throughput and latency on the frozen prompts"),
     "sharegpt": ("evals.speed.sharegpt", [], "ShareGPT first turns in length buckets at several concurrencies"),
     "competitive": ("evals.speed.competitive", [], "engine-neutral native /generate cells with frozen token inputs"),
-    "engine-matrix": ("evals.speed.engine_matrix", [], "Sharar / SGLang / Atlas token-input matrix"),
+    "engine-matrix": ("evals.speed.engine_matrix", [], "Hibana / SGLang / Atlas token-input matrix"),
     "local": ("evals.speed.local", [], "frozen local-use requests (cache variants, mixed arrival, cancellation)"),
     "agent": ("evals.speed.agent", [], "frozen agent-shaped episodes"),
     "efficiency": ("evals.efficiency", [], "efficiency of any running engine: warm-decode and aggregated-decode through AIPerf, agent-replay, suite"),

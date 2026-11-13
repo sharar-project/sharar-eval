@@ -274,7 +274,7 @@ def main() -> int:
     ap.add_argument("--max-tokens", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=4)
     ap.add_argument("--output", type=Path, required=True)
-    ap.add_argument("--model", default="sharar")
+    ap.add_argument("--model", default="hibana")
     ap.add_argument("--plain", action="store_true", help="another OpenAI-compatible server: no accept/trace fields, no /get_server_info")
     add_request_args(ap)
     args = ap.parse_args()

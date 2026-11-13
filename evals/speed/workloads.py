@@ -1,5 +1,6 @@
 """Versioned, fixed-work prompts matching the recorded GB10 10K/1K tasks (sharar/benchmark_workloads.py at
-2890ad1, which sharar's in-process benchmarks still use; tests/test_speed.py pins the digests of both).
+2890ad1, now hibana/benchmark_workloads.py, which Hibana's in-process benchmarks still use; tests/test_speed.py pins
+the digests of both).
 
 Only the first request of each historical task is used (concurrency one).
 Tokenization happens before timing; materialized IDs are saved with every run.
