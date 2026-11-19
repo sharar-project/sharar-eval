@@ -50,7 +50,8 @@ def post(url: str, body: dict, timeout: float = 900) -> dict:
 
 SAMPLING = {"temperature": 0.0}  # --temperature T samples with top_p 0.95, top_k 20 (the checkpoint's generation config)
 SERVER = {"model": "hibana", "plain": False}  # --model / --plain: another OpenAI-compatible server (no Hibana-only fields)
-# --thinking / --reasoning-effort (None: the template's default, xhigh on Qwen3.8) / --seed (the per-item seeds' offset)
+# --thinking (None with --template-prompt: no enable_thinking sent) / --reasoning-effort (None: the template's default,
+# xhigh on Qwen3.8) / --seed (the per-item seeds' offset)
 THINKING = {"thinking": False, "reasoning_effort": None, "seed": 0}
 EFFORTS = ("xhigh", "medium", "low")
 
@@ -65,6 +66,9 @@ def add_request_args(ap: argparse.ArgumentParser) -> None:
                     help="sample at this temperature (top_p 0.95, top_k 20, one seed per prompt shared by every arm)")
     ap.add_argument("--seed", type=int, default=0, help="with --temperature: another seed per prompt (repeat a sampled run)")
     ap.add_argument("--thinking", action="store_true", help="thinking on (the model's default; off unless given)")
+    ap.add_argument("--template-prompt", action="store_true",
+                    help="send no enable_thinking: the chat template's own generation prompt (a model without a thinking "
+                         "switch, such as Qwen3-Omni Instruct, whose template adds an empty think block for thinking off)")
     ap.add_argument("--reasoning-effort", choices=EFFORTS, help="with --thinking: the template's reasoning effort (default xhigh)")
 
 
@@ -73,15 +77,17 @@ def apply_request_args(ap: argparse.ArgumentParser, args) -> None:
         ap.error("--seed needs --temperature")
     if args.reasoning_effort and not args.thinking:
         ap.error("--reasoning-effort needs --thinking")
+    if args.template_prompt and args.thinking:
+        ap.error("--template-prompt sends no thinking switch: not with --thinking")
     if args.temperature > 0:
         SAMPLING.update(temperature=args.temperature, top_p=0.95, top_k=20)
-    THINKING.update(thinking=args.thinking, reasoning_effort=args.reasoning_effort, seed=args.seed)
+    THINKING.update(thinking=None if args.template_prompt else args.thinking, reasoning_effort=args.reasoning_effort, seed=args.seed)
 
 
 def ask(url: str, content: str, max_tokens: int, accept: tuple[int, float], system: str | None = None) -> tuple[str, dict]:
     """The reply (thinking removed) and the usage, with the thinking's last 400 characters as usage["reasoning_tail"].
     `system` goes first as a system message (LiveCodeBench's prompt has one); the seed comes from `content` alone."""
-    kwargs = {"enable_thinking": THINKING["thinking"]}
+    kwargs = {} if THINKING["thinking"] is None else {"enable_thinking": THINKING["thinking"]}
     if THINKING["reasoning_effort"]:
         kwargs["reasoning_effort"] = THINKING["reasoning_effort"]
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": content}]

@@ -30,8 +30,11 @@ a capped answer scores as wrong, so a model that reasons longer loses items to t
 
 Requests are greedy with thinking off unless the run asks otherwise, for every task but the needles and
 Terminal-Bench (their own requests): `--thinking` (with `--reasoning-effort`, the template's xhigh by default;
-it needs `--max-tokens`), `--temperature T` (top_p 0.95, top_k 20, one seed per item) and `--seed S` (another
-set of seeds: a repeat of a sampled run goes in its own directory). run.json records them as "request".
+it needs `--max-tokens`), `--template-prompt` (no thinking switch at all: the template's own generation prompt, for a
+model with no thinking mode whose template still adds an empty think block when told thinking is off, as
+Qwen3-Omni Instruct's; recorded as thinking null), `--temperature T` (top_p 0.95, top_k 20, one seed per item) and
+`--seed S` (another set of seeds: a repeat of a sampled run goes in its own directory). run.json records them as
+"request".
 `show` with several run directories (seeds) prints each one's scores and their mean.
 
 `compare` pairs the two runs item by item on every task both have (on the items both have):
