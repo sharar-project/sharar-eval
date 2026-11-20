@@ -103,7 +103,12 @@ def test_thinking_requests_and_replies(request_mode, monkeypatch):
     replies.append(reply("thinking that never ends", finish="length"))  # and capped inside the thinking
     text, usage = ae.ask("u", "q", 100, None)
     assert (text, usage["reasoning_tail"]) == ("", "thinking that never ends")
-    for bad in (["--seed", "1"], ["--reasoning-effort", "low"]):
+    ae.apply_request_args(ap, ap.parse_args(["--template-prompt", "--temperature", "0.6"]))
+    assert ae.request_mode()["thinking"] is None
+    replies.append(reply("thinking that never ends", finish="length"))  # no thinking switch: a capped reply is the reply
+    assert ae.ask("u", "q", 100, None)[0] == "thinking that never ends"
+    assert sent[-1]["chat_template_kwargs"] == {}  # the template's default prompt, no empty think block
+    for bad in (["--seed", "1"], ["--reasoning-effort", "low"], ["--template-prompt", "--thinking"]):
         with pytest.raises(SystemExit):
             ae.apply_request_args(ap, ap.parse_args(bad))
 
